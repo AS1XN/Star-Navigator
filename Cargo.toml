@@ -11,7 +11,38 @@ repository = "https://github.com/AS1XN/Star-Navigator"
 
 [workspace.dependencies]
 catalog = { path = "crates/catalog" }
-bevy = "0.19.1"
+# Only what the viewer uses; Bevy's defaults (audio, glTF, scenes, animation,
+# gamepads...) roughly double the wasm size and startup time.
+bevy = { version = "0.19.1", default-features = false, features = [
+    "default_app",
+    "std",
+    "multi_threaded",
+    "bevy_winit",
+    "x11",
+    "wayland",
+    "webgl2",
+    "default_font",
+    "bevy_window",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_image",
+    "bevy_mesh",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_light",
+    "bevy_pbr",
+    "bevy_post_process",
+    "bevy_gizmos",
+    "bevy_gizmos_render",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_render",
+    "tonemapping_luts",
+    "ktx2",
+    "zstd_rust",
+] }
 stucco = "0.2.1"
 
 # Bevy is unbearably slow in debug without optimizing dependencies.

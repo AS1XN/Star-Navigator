@@ -79,6 +79,15 @@ fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
                         "https://github.com/astronexus/HYG-Database",
                     ))
                     .child(Text::new(summary))
+                    .child(Heading::new(2, "Constellation figures"))
+                    .child(Text::new(
+                        "Stick figures from d3-celestial by Olaf Frohn, BSD 3-Clause license. \
+                         Copyright (c) 2015, Olaf Frohn.",
+                    ))
+                    .child(Link::new(
+                        "github.com/ofrohn/d3-celestial",
+                        "https://github.com/ofrohn/d3-celestial",
+                    ))
                     .child(Link::new("Back to the map", "index.html")),
             ),
         )

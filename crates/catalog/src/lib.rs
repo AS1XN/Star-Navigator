@@ -6,9 +6,11 @@
 use std::collections::HashMap;
 
 mod format;
+mod lines;
 pub mod names;
 
 pub use format::{DecodeError, decode, encode};
+pub use lines::{Polyline, decode_lines, encode_lines};
 pub use names::{CONSTELLATIONS, Constellation, normalize};
 
 /// Light years per parsec.

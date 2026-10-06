@@ -2,13 +2,16 @@
 
 use std::{collections::HashMap, fs, path::Path, process::Command};
 
-use catalog::{Catalog, Star, names::constellation_index};
+use catalog::{Catalog, Polyline, Star, encode_lines, names::constellation_index};
 
 use crate::{Result, root, run};
 
 const HYG_URL: &str =
     "https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv";
 const HYG_FILE: &str = "hygdata_v41.csv";
+const LINES_URL: &str =
+    "https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/constellations.lines.json";
+const LINES_FILE: &str = "constellations.lines.json";
 /// HYG's placeholder distance for stars without a usable parallax.
 const NO_DISTANCE_PC: f32 = 100_000.0;
 
@@ -39,6 +42,66 @@ pub fn data(force_download: bool) -> Result {
         out.strip_prefix(&root).unwrap_or(&out).display(),
         bytes.len() / 1024,
         stars.len(),
+    );
+
+    constellation_lines(&root, force_download, &catalog)
+}
+
+/// Converts d3-celestial's constellation figures (GeoJSON, RA as -180..180 degrees)
+/// into `assets/catalog/constellations.bin`.
+fn constellation_lines(root: &Path, force_download: bool, catalog: &Catalog) -> Result {
+    let raw = root.join("data/raw").join(LINES_FILE);
+    if force_download || !raw.exists() {
+        run(Command::new("curl").args(["-fL", "--retry", "3", "-o"]).arg(&raw).arg(LINES_URL))?;
+    }
+    let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&raw)?)?;
+    let features = json["features"].as_array().ok_or("constellation lines: no features")?;
+
+    let mut lines = Vec::new();
+    for f in features {
+        let id = f["id"].as_str().ok_or("constellation lines: feature without id")?;
+        let con = constellation_index(id).ok_or_else(|| format!("unknown constellation {id}"))?;
+        let strips = f["geometry"]["coordinates"].as_array().ok_or("bad geometry")?;
+        for strip in strips {
+            let points = strip
+                .as_array()
+                .ok_or("bad line")?
+                .iter()
+                .map(|p| {
+                    let lon = p[0].as_f64().ok_or("bad point")?;
+                    let dec = p[1].as_f64().ok_or("bad point")?;
+                    Ok(((lon.rem_euclid(360.0) / 15.0) as f32, dec as f32))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            lines.push(Polyline { con, points });
+        }
+    }
+
+    // Every figure vertex should sit on a catalogued star; this catches an RA/Dec
+    // convention mix-up.
+    let stars: Vec<[f32; 3]> =
+        catalog.stars().iter().filter(|s| s.mag < 6.5).map(|s| s.direction()).collect();
+    let miss = lines
+        .iter()
+        .flat_map(|l| &l.points)
+        .filter(|&&(ra, dec)| {
+            let probe = Star { ra, dec, ..catalog.stars()[0].clone() }.direction();
+            !stars.iter().any(|d| d.iter().zip(probe).map(|(a, b)| a * b).sum::<f32>() > 0.99999)
+        })
+        .count();
+    let total: usize = lines.iter().map(|l| l.points.len()).sum();
+    if miss * 20 > total {
+        return Err(format!("constellation lines: {miss}/{total} vertices match no star").into());
+    }
+
+    let out = root.join("assets/catalog/constellations.bin");
+    let bytes = encode_lines(&lines);
+    fs::write(&out, &bytes)?;
+    eprintln!(
+        "wrote {} ({} KB): {} polylines, {total} vertices, {miss} off-star",
+        out.strip_prefix(root).unwrap_or(&out).display(),
+        bytes.len() / 1024,
+        lines.len()
     );
     Ok(())
 }

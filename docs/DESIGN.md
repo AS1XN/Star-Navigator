@@ -101,7 +101,7 @@ Flat circular sky chart in the briefing-table style.
 |---|---|---|
 | [HYG Database v4](https://github.com/astronexus/HYG-Database) (~120k stars; Hipparcos, Yale BSC, Gliese) | Core catalog: positions, distances, magnitudes, spectral types, designations | CC BY-SA 4.0 (attribution on credits page) |
 | IAU WGSN star names (via HYG) | Proper names | - |
-| Constellation line figures (d3-celestial or Stellarium "modern") | Constellation overlay | BSD-3 / to verify |
+| [d3-celestial](https://github.com/ofrohn/d3-celestial) constellation lines | Constellation overlay | BSD-3 (attribution on credits page) |
 | SIMBAD (CDS) name resolver / TAP | Online fallback for stars not in the bundle | Free with acknowledgement |
 | Gaia DR3 subset (optional, later) | Deeper star field | Free with acknowledgement |
 

@@ -1,5 +1,8 @@
 //! Constellation and Greek letter tables, and the text normalization used by search.
 
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 pub struct Constellation {
     pub abbr: &'static str,
     pub name: &'static str,
@@ -152,6 +155,28 @@ pub fn greek_name(bayer: &str) -> Option<String> {
     Some(s)
 }
 
+/// Multi-word constellation names as (" canis majoris ", " cma "), longest first so
+/// "triangulum australe" wins over "triangulum".
+static PHRASES: LazyLock<Vec<(String, String)>> = LazyLock::new(|| {
+    let mut phrases: Vec<(String, String)> = CONSTELLATIONS
+        .iter()
+        .flat_map(|c| [c.name, c.genitive].map(|p| (p, c.abbr)))
+        .filter(|(p, _)| p.contains(' '))
+        .map(|(p, a)| (format!(" {} ", p.to_lowercase()), format!(" {} ", a.to_lowercase())))
+        .collect();
+    phrases.sort_by_key(|(p, _)| std::cmp::Reverse(p.len()));
+    phrases
+});
+
+/// Single-word constellation names and genitives, lowercased, to lowercase abbreviation.
+static WORDS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    CONSTELLATIONS
+        .iter()
+        .flat_map(|c| [c.name, c.genitive].map(|p| (p.to_lowercase(), c.abbr.to_lowercase())))
+        .filter(|(p, _)| !p.contains(' '))
+        .collect()
+});
+
 /// Reduces a name or designation to a canonical search key, so that "Alpha Lyrae",
 /// "alp Lyr", "α Lyr" and "ALPHA-LYR" all become "alp lyr", and "Alpha-1 Centauri"
 /// becomes "alp1 cen".
@@ -169,17 +194,10 @@ pub fn normalize(text: &str) -> String {
         }
     }
     let mut s = format!(" {} ", s.split_whitespace().collect::<Vec<_>>().join(" "));
-
-    // Multi-word constellation names first, longest first so "triangulum australe"
-    // wins over "triangulum".
-    let mut phrases: Vec<(String, String)> = CONSTELLATIONS
-        .iter()
-        .flat_map(|c| [c.name, c.genitive].map(|p| (p.to_lowercase(), c.abbr.to_lowercase())))
-        .filter(|(p, _)| p.contains(' '))
-        .collect();
-    phrases.sort_by_key(|(p, _)| std::cmp::Reverse(p.len()));
-    for (phrase, abbr) in phrases {
-        s = s.replace(&format!(" {phrase} "), &format!(" {abbr} "));
+    for (phrase, abbr) in PHRASES.iter() {
+        if s.contains(phrase.as_str()) {
+            s = s.replace(phrase.as_str(), abbr);
+        }
     }
 
     let mut out: Vec<String> = Vec::new();
@@ -198,11 +216,8 @@ pub fn normalize(text: &str) -> String {
             out.push(format!("{abbr}{digits}"));
             continue;
         }
-        if let Some(c) = CONSTELLATIONS
-            .iter()
-            .find(|c| c.name.eq_ignore_ascii_case(token) || c.genitive.eq_ignore_ascii_case(token))
-        {
-            out.push(c.abbr.to_lowercase());
+        if let Some(abbr) = WORDS.get(token) {
+            out.push(abbr.clone());
             continue;
         }
         out.push(if token == "gj" { "gl".into() } else { token.into() });

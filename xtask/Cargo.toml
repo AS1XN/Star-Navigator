@@ -9,3 +9,4 @@ publish = false
 [dependencies]
 catalog.workspace = true
 csv = "1"
+serde_json = "1"

@@ -172,9 +172,14 @@ fn serve(port: u16) -> Result {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     eprintln!("serving {} at http://localhost:{port}", dist.display());
     for stream in listener.incoming().flatten() {
-        if let Err(e) = respond(stream, &dist) {
-            eprintln!("request failed: {e}");
-        }
+        // One thread per connection: browsers open idle speculative connections
+        // that would otherwise block the accept loop.
+        let dist = dist.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = respond(stream, &dist) {
+                eprintln!("request failed: {e}");
+            }
+        });
     }
     Ok(())
 }

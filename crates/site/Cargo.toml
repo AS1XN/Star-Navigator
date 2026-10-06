@@ -1,0 +1,12 @@
+[package]
+name = "site"
+description = "Static website generator for Star-Navigator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+stucco.workspace = true
+catalog.workspace = true

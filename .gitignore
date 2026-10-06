@@ -1,0 +1,12 @@
+# Editors
+.vscode/
+.idea/
+
+# Build output
+/target/
+/dist/
+/data/raw/
+
+# OS
+.DS_Store
+Thumbs.db

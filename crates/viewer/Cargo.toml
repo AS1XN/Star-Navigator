@@ -1,0 +1,16 @@
+[package]
+name = "viewer"
+description = "Star-Navigator 3D viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "star-navigator"
+path = "src/main.rs"
+
+[dependencies]
+bevy.workspace = true
+catalog.workspace = true

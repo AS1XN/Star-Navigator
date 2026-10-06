@@ -6,6 +6,7 @@ use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 
 use crate::GLOBE_RADIUS;
+use crate::look::HoloEffect;
 
 pub struct OrbitPlugin;
 
@@ -48,7 +49,13 @@ impl Default for Orbit {
 }
 
 fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera3d::default(), Hdr, Bloom::NATURAL, Transform::default()));
+    commands.spawn((
+        Camera3d::default(),
+        Hdr,
+        Bloom::NATURAL,
+        HoloEffect::default(),
+        Transform::default(),
+    ));
 }
 
 fn orbit_input(

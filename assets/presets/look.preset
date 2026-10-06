@@ -1,0 +1,17 @@
+# Star-Navigator look preset
+palette = holo
+scanlines = 0.35
+scan_period = 3
+roll = 0.5
+flicker = 0.12
+jitter = 0.6
+tear = 6
+grain = 0.06
+fringe = 2
+vignette = 0.6
+mono = 0.85
+mask = 0.25
+bloom = 0.3
+star_size = 1
+star_glow = 1.6
+back_fade = 0.3

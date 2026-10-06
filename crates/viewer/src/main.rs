@@ -1,6 +1,7 @@
 mod camera;
 mod data;
 mod hud;
+mod look;
 mod picking;
 mod sky;
 
@@ -22,7 +23,7 @@ pub fn sky_to_world([x, y, z]: [f32; 3]) -> Vec3 {
     Vec3::new(x, z, -y)
 }
 
-fn asset_root() -> String {
+pub fn asset_root() -> String {
     if cfg!(target_arch = "wasm32") {
         "assets".into()
     } else {
@@ -58,6 +59,7 @@ fn main() {
             sky::SkyPlugin,
             picking::PickingPlugin,
             hud::HudPlugin,
+            look::LookPlugin,
         ))
         .run();
 }

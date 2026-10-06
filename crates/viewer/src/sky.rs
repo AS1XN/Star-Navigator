@@ -81,7 +81,7 @@ impl Material for StarMaterial {
 }
 
 #[derive(Component)]
-struct StarField(Handle<StarMaterial>);
+pub struct StarField(pub Handle<StarMaterial>);
 
 /// Rough B-V color index to RGB, pulled most of the way toward white so the
 /// hologram stays monochrome with just a hint of temperature.

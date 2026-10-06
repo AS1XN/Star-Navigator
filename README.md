@@ -7,6 +7,19 @@ neighbourhood, drawn like an analog hologram from old film sci-fi.
 
 Early days: see [docs/DESIGN.md](docs/DESIGN.md) for the plan and roadmap.
 
+## Controls
+
+Drag to rotate, scroll to zoom, click a star for its details.
+
+| Key | Action |
+|---|---|
+| `[` `]` | Show fewer / more (fainter) stars |
+| G / C | Toggle grid / constellation figures |
+| Space | Toggle idle spin |
+| P | Cycle palette (holo blue, tactical red, targeting amber, wireframe green) |
+| T | Open the display calibration panel (arrows adjust, S saves a preset) |
+| H | Show the raw view without the display effects |
+
 ## Building
 
 Requires Rust (stable) and, on Windows, the MSVC build tools.

@@ -41,7 +41,7 @@ impl AssetLoader for BinaryLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["bin"]
+        &["bin", "preset"]
     }
 }
 

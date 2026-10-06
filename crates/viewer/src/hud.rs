@@ -5,6 +5,7 @@ use bevy::window::PrimaryWindow;
 use catalog::Star;
 
 use crate::data::{LoadError, Sky};
+use crate::look::Tinted;
 use crate::picking::Selection;
 use crate::sky::SkyView;
 use crate::{AppState, HOLO};
@@ -70,19 +71,26 @@ fn spawn_hud(mut commands: Commands) {
             Text::new("INITIALIZING STAR CHARTS..."),
             font(18.0),
             TextColor(HOLO),
+            Tinted(1.0),
         ));
     commands.spawn((
         Status,
         Text::new("STAR-NAVIGATOR"),
         font(15.0),
         TextColor(HOLO),
+        Tinted(1.0),
         Node { position_type: PositionType::Absolute, left: px(24), bottom: px(20), ..default() },
     ));
     commands.spawn((
         Help,
-        Text::new("DRAG ROTATE   WHEEL ZOOM   CLICK SELECT\n[ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN"),
+        Text::new(
+            "DRAG ROTATE   WHEEL ZOOM   CLICK SELECT\n\
+             [ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN\n\
+             P PALETTE   T TUNE LOOK   H RAW VIEW",
+        ),
         font(12.0),
         dim(),
+        Tinted(0.6),
         TextLayout::justify(Justify::Right),
         Node { position_type: PositionType::Absolute, right: px(24), bottom: px(20), ..default() },
     ));
@@ -91,6 +99,7 @@ fn spawn_hud(mut commands: Commands) {
         Text::new(""),
         font(13.0),
         TextColor(HOLO),
+        Tinted(1.0),
         Node { position_type: PositionType::Absolute, ..default() },
     ));
     commands.spawn((
@@ -98,6 +107,7 @@ fn spawn_hud(mut commands: Commands) {
         Text::new(""),
         font(14.0),
         TextColor(HOLO),
+        Tinted(1.0),
         Node { position_type: PositionType::Absolute, left: px(24), top: px(20), ..default() },
     ));
 }

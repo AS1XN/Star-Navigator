@@ -9,7 +9,9 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 
 use crate::data::Sky;
-use crate::{AppState, GLOBE_RADIUS, HOLO, sky_to_world};
+use crate::{
+    AppState, GLOBE_RADIUS, HOLO, field_position, globe_position, hotkeys_enabled, sky_to_world,
+};
 
 pub struct SkyPlugin;
 
@@ -20,7 +22,13 @@ impl Plugin for SkyPlugin {
             .add_systems(OnEnter(AppState::Ready), (spawn_stars, build_figures))
             .add_systems(
                 Update,
-                (controls, update_material, draw_grid, draw_figures)
+                (
+                    controls.run_if(hotkeys_enabled),
+                    update_material,
+                    fold_band,
+                    draw_grid,
+                    draw_figures,
+                )
                     .run_if(in_state(AppState::Ready)),
             );
     }
@@ -32,11 +40,13 @@ pub struct SkyView {
     pub mag_limit: f32,
     pub grid: bool,
     pub figures: bool,
+    /// 0 = celestial globe, 1 = stars at their true 3D positions around Sol.
+    pub unfold: f32,
 }
 
 impl Default for SkyView {
     fn default() -> Self {
-        Self { mag_limit: 6.5, grid: true, figures: true }
+        Self { mag_limit: 6.5, grid: true, figures: true, unfold: 0.0 }
     }
 }
 
@@ -56,6 +66,11 @@ pub struct StarSettings {
     pub size_scale: f32,
     pub back_fade: f32,
     pub brightness: f32,
+    pub unfold: f32,
+    // Uniforms must be a multiple of 16 bytes on WebGL2.
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 impl Material for StarMaterial {
@@ -103,18 +118,26 @@ fn spawn_stars(
     let stars: Vec<_> = sky.catalog.stars().iter().filter(|s| !s.is_sun()).collect();
     let n = stars.len();
     let mut positions = Vec::with_capacity(n * 4);
+    let mut field = Vec::with_capacity(n * 4);
     let mut corners = Vec::with_capacity(n * 4);
     let mut params = Vec::with_capacity(n * 4);
     let mut colors = Vec::with_capacity(n * 4);
     let mut indices = Vec::with_capacity(n * 6);
 
     for (i, star) in stars.iter().enumerate() {
-        let p = (sky_to_world(star.direction()) * GLOBE_RADIUS).to_array();
+        let globe = globe_position(star);
+        // Stars without a distance drift outward and fade as the globe unfolds.
+        let (f, known) = match field_position(star) {
+            Some(f) => (f, 1.0),
+            None => (globe * 12.0, 0.0),
+        };
         let color = star_color(star.ci);
         for corner in [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]] {
-            positions.push(p);
+            positions.push(globe.to_array());
+            // The normal attribute is free, so it carries the 3D field position.
+            field.push(f.to_array());
             corners.push(corner);
-            params.push([star.mag, 0.0]);
+            params.push([star.mag, known]);
             colors.push(color);
         }
         let b = i as u32 * 4;
@@ -123,6 +146,7 @@ fn spawn_stars(
 
     let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, field)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, corners)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, params)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
@@ -135,6 +159,10 @@ fn spawn_stars(
             size_scale: 1.0,
             back_fade: 0.3,
             brightness: 1.6,
+            unfold: 0.0,
+            _pad0: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
         },
     });
     commands.spawn((
@@ -152,9 +180,27 @@ fn spawn_stars(
         ..default()
     });
     commands.spawn((
+        EquatorBand,
         Mesh3d(meshes.add(Torus::new(GLOBE_RADIUS - 0.012, GLOBE_RADIUS + 0.012))),
         MeshMaterial3d(band),
     ));
+}
+
+#[derive(Component)]
+struct EquatorBand;
+
+/// The band shrinks into Sol as the globe unfolds into the 3D field.
+fn fold_band(
+    view: Res<SkyView>,
+    mut band: Single<(&mut Transform, &mut Visibility), With<EquatorBand>>,
+) {
+    if !view.is_changed() {
+        return;
+    }
+    let (transform, visibility) = &mut *band;
+    let s = 1.0 - view.unfold;
+    transform.scale = Vec3::new(s, 1.0, s);
+    **visibility = if s < 0.01 { Visibility::Hidden } else { Visibility::Inherited };
 }
 
 fn controls(keys: Res<ButtonInput<KeyCode>>, mut view: ResMut<SkyView>) {
@@ -182,6 +228,7 @@ fn update_material(
     }
     if let Some(mut m) = materials.get_mut(&field.0) {
         m.settings.mag_limit = view.mag_limit;
+        m.settings.unfold = view.unfold;
     }
 }
 
@@ -216,11 +263,11 @@ fn draw_grid(
     camera: Single<&GlobalTransform, With<Camera3d>>,
     mut gizmos: Gizmos,
 ) {
-    if !view.grid {
+    if !view.grid || view.unfold > 0.98 {
         return;
     }
     let eye = camera.translation().normalize();
-    let color = grid_color(0.22);
+    let color = grid_color(0.22 * (1.0 - view.unfold));
     for dec in [-60.0, -30.0, 30.0, 60.0] {
         let pts = (0..=96).map(|i| on_sphere(i as f32 * 24.0 / 96.0, dec));
         gizmos.linestrip_gradient(faded(pts, eye, color));
@@ -262,11 +309,11 @@ fn draw_figures(
     camera: Single<&GlobalTransform, With<Camera3d>>,
     mut gizmos: Gizmos,
 ) {
-    if !view.figures {
+    if !view.figures || view.unfold > 0.98 {
         return;
     }
     let eye = camera.translation().normalize();
-    let color = grid_color(0.55);
+    let color = grid_color(0.55 * (1.0 - view.unfold));
     for strip in &figures.0 {
         gizmos.linestrip_gradient(faded(strip.iter().copied(), eye, color));
     }

@@ -6,7 +6,7 @@ use bevy::window::PrimaryWindow;
 use crate::camera::Orbit;
 use crate::data::Sky;
 use crate::sky::SkyView;
-use crate::{AppState, GLOBE_RADIUS, HOLO, sky_to_world};
+use crate::{AppState, HOLO, field_position, globe_position, star_world};
 
 pub struct PickingPlugin;
 
@@ -27,9 +27,16 @@ pub struct Selection {
     pub selected: Option<usize>,
 }
 
-/// Star index, world position and magnitude, brightest first.
+struct Target {
+    index: usize,
+    globe: Vec3,
+    field: Option<Vec3>,
+    mag: f32,
+}
+
+/// Every star's globe and field positions, brightest first.
 #[derive(Resource)]
-struct Targets(Vec<(usize, Vec3, f32)>);
+struct Targets(Vec<Target>);
 
 const PICK_RADIUS_PX: f32 = 14.0;
 
@@ -40,7 +47,12 @@ fn build_targets(mut commands: Commands, sky: Res<Sky>) {
         .iter()
         .enumerate()
         .filter(|(_, s)| !s.is_sun())
-        .map(|(i, s)| (i, sky_to_world(s.direction()) * GLOBE_RADIUS, s.mag))
+        .map(|(index, s)| Target {
+            index,
+            globe: globe_position(s),
+            field: field_position(s),
+            mag: s.mag,
+        })
         .collect();
     commands.insert_resource(Targets(targets));
 }
@@ -61,12 +73,19 @@ fn hover(
         return;
     }
     let (camera, cam_tf) = *camera;
-    let eye = cam_tf.translation().normalize();
+    let eye = cam_tf.translation();
+    let on_globe = view.unfold < 0.5;
 
     let mut best: Option<(usize, f32)> = None;
     // Targets are sorted by magnitude, so stop at the display limit.
-    for &(index, pos, mag) in targets.0.iter().take_while(|t| t.2 <= view.mag_limit) {
-        if pos.normalize().dot(eye) < 0.05 {
+    for t in targets.0.iter().take_while(|t| t.mag <= view.mag_limit) {
+        let pos = match (on_globe, t.field) {
+            (true, _) => t.globe.lerp(t.field.unwrap_or(t.globe * 12.0), view.unfold),
+            (false, Some(f)) => t.globe.lerp(f, view.unfold),
+            (false, None) => continue,
+        };
+        // On the globe only the near hemisphere is pickable.
+        if on_globe && pos.normalize().dot(eye.normalize()) < 0.05 {
             continue;
         }
         let Ok(screen) = camera.world_to_viewport(cam_tf, pos) else { continue };
@@ -75,9 +94,9 @@ fn hover(
             continue;
         }
         // Prefer bright stars when several are under the cursor.
-        let score = d + mag * 1.5;
+        let score = d + t.mag * 1.5;
         if best.is_none_or(|(_, s)| score < s) {
-            best = Some((index, score));
+            best = Some((t.index, score));
         }
     }
     selection.hovered = best.map(|(i, _)| i);
@@ -89,33 +108,37 @@ fn click(buttons: Res<ButtonInput<MouseButton>>, orbit: Res<Orbit>, mut sel: Res
     }
 }
 
+/// Camera-facing circle with four ticks, sized to stay constant on screen.
+pub fn reticle(gizmos: &mut Gizmos, eye: Vec3, pos: Vec3, size: f32, color: Color, spin: f32) {
+    let to_eye = (eye - pos).normalize();
+    let r = eye.distance(pos) * size;
+    let facing = Quat::from_rotation_arc(Vec3::Z, to_eye);
+    gizmos.circle(Isometry3d::new(pos, facing), r, color);
+    for k in 0..4 {
+        let dir = facing
+            * (Quat::from_rotation_z(spin + k as f32 * std::f32::consts::FRAC_PI_2) * Vec3::X);
+        gizmos.line(pos + dir * r * 1.25, pos + dir * r * 1.9, color);
+    }
+}
+
 fn draw_reticles(
     selection: Res<Selection>,
     sky: Res<Sky>,
+    view: Res<SkyView>,
     camera: Single<&GlobalTransform, With<Camera3d>>,
     time: Res<Time>,
     mut gizmos: Gizmos,
 ) {
     let eye = camera.translation();
-    let reticle = |gizmos: &mut Gizmos, index: usize, size: f32, color: Color, spin: f32| {
-        let pos = sky_to_world(sky.catalog.stars()[index].direction()) * GLOBE_RADIUS;
-        let to_eye = (eye - pos).normalize();
-        let r = eye.distance(pos) * size;
-        let facing = Quat::from_rotation_arc(Vec3::Z, to_eye);
-        gizmos.circle(Isometry3d::new(pos, facing), r, color);
-        for k in 0..4 {
-            let dir = facing
-                * (Quat::from_rotation_z(spin + k as f32 * std::f32::consts::FRAC_PI_2) * Vec3::X);
-            gizmos.line(pos + dir * r * 1.25, pos + dir * r * 1.9, color);
-        }
-    };
-
+    let stars = sky.catalog.stars();
     let holo = LinearRgba::from(HOLO);
-    if let Some(i) = selection.selected {
+    if let Some(pos) = selection.selected.and_then(|i| star_world(&stars[i], view.unfold)) {
         let pulse = 2.5 + (time.elapsed_secs() * 4.0).sin() * 0.8;
-        reticle(&mut gizmos, i, 0.022, (holo * pulse).into(), time.elapsed_secs() * 0.6);
+        let color = (holo * pulse).into();
+        reticle(&mut gizmos, eye, pos, 0.022, color, time.elapsed_secs() * 0.6);
     }
-    if let Some(i) = selection.hovered.filter(|&h| Some(h) != selection.selected) {
-        reticle(&mut gizmos, i, 0.014, (holo * 1.2).into(), 0.0);
+    let hovered = selection.hovered.filter(|&h| Some(h) != selection.selected);
+    if let Some(pos) = hovered.and_then(|i| star_world(&stars[i], view.unfold)) {
+        reticle(&mut gizmos, eye, pos, 0.014, (holo * 1.2).into(), 0.0);
     }
 }

@@ -30,7 +30,14 @@ impl Plugin for LookPlugin {
             .add_systems(Startup, (load_preset, spawn_panel))
             .add_systems(
                 Update,
-                (apply_preset, tune_input, update_effect, update_stars, tint_text, draw_panel),
+                (
+                    apply_preset,
+                    tune_input.run_if(crate::hotkeys_enabled),
+                    update_effect,
+                    update_stars,
+                    tint_text,
+                    draw_panel,
+                ),
             );
     }
 }

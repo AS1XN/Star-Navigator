@@ -9,7 +9,8 @@ Early days: see [docs/DESIGN.md](docs/DESIGN.md) for the plan and roadmap.
 
 ## Controls
 
-Drag to rotate, scroll to zoom, click a star for its details.
+Drag to rotate, scroll to zoom, click a star for its details. Press `/` (or Enter) to
+search by name or catalog number; Enter on a result flies to the star in 3D.
 
 | Key | Action |
 |---|---|
@@ -19,6 +20,9 @@ Drag to rotate, scroll to zoom, click a star for its details.
 | P | Cycle palette (holo blue, tactical red, targeting amber, wireframe green) |
 | T | Open the display calibration panel (arrows adjust, S saves a preset) |
 | H | Show the raw view without the display effects |
+| `/` or Enter | Find a star (Up/Down to pick, Enter to locate) |
+| L | Locate the selected star in 3D |
+| Esc | Return from the 3D view to the sky chart |
 
 ## Building
 

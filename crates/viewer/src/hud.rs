@@ -40,12 +40,15 @@ struct Plate;
 #[derive(Component)]
 struct Help;
 
-/// The key help collides with the status line on narrow (phone) screens.
+/// Shrinks the HUD on narrow (phone) screens; the key help is hidden there since it
+/// would collide with the status line.
 fn fit_to_window(
     window: Single<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     mut help: Single<&mut Visibility, With<Help>>,
+    mut scale: ResMut<UiScale>,
 ) {
     **help = if window.width() < 760.0 { Visibility::Hidden } else { Visibility::Inherited };
+    scale.0 = (window.width() / 1100.0).clamp(0.45, 1.0);
 }
 
 fn font(size: f32) -> TextFont {
@@ -86,7 +89,8 @@ fn spawn_hud(mut commands: Commands) {
         Text::new(
             "DRAG ROTATE   WHEEL ZOOM   CLICK SELECT\n\
              [ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN\n\
-             P PALETTE   T TUNE LOOK   H RAW VIEW",
+             P PALETTE   T TUNE LOOK   H RAW VIEW\n\
+             / FIND   L LOCATE SELECTED   ESC BACK",
         ),
         font(12.0),
         dim(),

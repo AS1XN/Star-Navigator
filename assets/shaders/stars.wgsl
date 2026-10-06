@@ -13,15 +13,22 @@ struct StarSettings {
     size_scale: f32,
     back_fade: f32,
     brightness: f32,
+    unfold: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> settings: StarSettings;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
+    // Position on the celestial globe.
     @location(0) position: vec3<f32>,
+    // True 3D position around Sol (carried in the normal slot).
+    @location(1) field: vec3<f32>,
     @location(2) corner: vec2<f32>,
-    // x: apparent magnitude
+    // x: apparent magnitude, y: 1 if the distance is known
     @location(3) params: vec2<f32>,
     @location(5) color: vec4<f32>,
 };
@@ -43,7 +50,7 @@ fn vertex(v: Vertex) -> StarOut {
     }
 
     let world_from_local = get_world_from_local(v.instance_index);
-    let world = mesh_position_local_to_world(world_from_local, vec4(v.position, 1.0)).xyz;
+    let world = mesh_position_local_to_world(world_from_local, vec4(mix(v.position, v.field, settings.unfold), 1.0)).xyz;
     var clip = position_world_to_clip(world);
 
     let size_px = clamp(1.5 + excess * 0.75, 1.5, 9.0) * settings.size_scale;
@@ -52,7 +59,9 @@ fn vertex(v: Vertex) -> StarOut {
 
     // Stars on the far side of the globe show through, dimmed.
     let facing = dot(normalize(world), normalize(view.world_position));
-    let fade = mix(settings.back_fade, 1.0, smoothstep(-0.15, 0.15, facing));
+    var fade = mix(settings.back_fade, 1.0, smoothstep(-0.15, 0.15, facing));
+    // In the 3D field there is no far side; stars without a distance fade out.
+    fade = mix(fade, v.params.y, settings.unfold);
     let intensity = clamp(0.3 + excess * 0.4, 0.3, 4.0) * settings.brightness;
 
     out.corner = v.corner;

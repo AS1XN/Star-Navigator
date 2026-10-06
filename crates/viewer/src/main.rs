@@ -1,8 +1,10 @@
 mod camera;
 mod data;
 mod hud;
+mod locate;
 mod look;
 mod picking;
+mod search;
 mod sky;
 
 use bevy::asset::AssetMetaCheck;
@@ -18,9 +20,41 @@ pub enum AppState {
     Ready,
 }
 
+/// World units per parsec in the 3D field view (Sol at the origin).
+pub const FIELD_SCALE: f32 = 0.05;
+
 /// Equatorial coordinates are Z-up (toward the north celestial pole); Bevy is Y-up.
 pub fn sky_to_world([x, y, z]: [f32; 3]) -> Vec3 {
     Vec3::new(x, z, -y)
+}
+
+/// Where a star sits on the celestial globe.
+pub fn globe_position(star: &catalog::Star) -> Vec3 {
+    sky_to_world(star.direction()) * GLOBE_RADIUS
+}
+
+/// Where a star sits in the 3D field, if its distance is known.
+pub fn field_position(star: &catalog::Star) -> Option<Vec3> {
+    star.position().map(|p| sky_to_world(p) * FIELD_SCALE)
+}
+
+/// Current on-screen position: blends globe and field by the unfold amount.
+/// `None` for stars without a distance once the field has mostly unfolded.
+pub fn star_world(star: &catalog::Star, unfold: f32) -> Option<Vec3> {
+    let globe = globe_position(star);
+    match field_position(star) {
+        Some(f) => Some(globe.lerp(f, unfold)),
+        None if unfold < 0.5 => Some(globe.lerp(globe * 12.0, unfold)),
+        None => None,
+    }
+}
+
+/// True while the search box has the keyboard, so single-key shortcuts stay quiet.
+#[derive(Resource, Default)]
+pub struct Typing(pub bool);
+
+pub fn hotkeys_enabled(typing: Res<Typing>) -> bool {
+    !typing.0
 }
 
 pub fn asset_root() -> String {
@@ -53,6 +87,7 @@ fn main() {
         )
         .insert_resource(ClearColor(Color::BLACK))
         .init_state::<AppState>()
+        .init_resource::<Typing>()
         .add_plugins((
             data::DataPlugin,
             camera::OrbitPlugin,
@@ -60,6 +95,8 @@ fn main() {
             picking::PickingPlugin,
             hud::HudPlugin,
             look::LookPlugin,
+            search::SearchPlugin,
+            locate::LocatePlugin,
         ))
         .run();
 }

@@ -1,7 +1,10 @@
 //! Project tasks. Run with `cargo xtask <task>`.
 //!
+//!   data     convert the HYG csv (downloaded if missing) into assets/catalog/stars.bin
 //!   web      build the wasm viewer and the static site into dist/
 //!   serve    build web, then serve dist/ on http://localhost:8080
+
+mod data;
 
 use std::{
     env, fs,
@@ -19,10 +22,11 @@ const PROFILE: &str = "wasm-release";
 fn main() {
     let task = env::args().nth(1).unwrap_or_default();
     let res = match task.as_str() {
+        "data" => data::data(env::args().any(|a| a == "--download")),
         "web" => web(),
         "serve" => web().and_then(|_| serve(8080)),
         _ => {
-            eprintln!("usage: cargo xtask <web|serve>");
+            eprintln!("usage: cargo xtask <data [--download]|web|serve>");
             exit(2);
         }
     };

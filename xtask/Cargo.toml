@@ -7,3 +7,5 @@ license.workspace = true
 publish = false
 
 [dependencies]
+catalog.workspace = true
+csv = "1"

@@ -1,41 +1,120 @@
-//! Star catalog types shared by the viewer and the site generator.
+//! Star catalog shared by the viewer and the site generator.
 //!
-//! The real catalog (HYG v4) is wired in during phase 1. For now this holds the
-//! core types and a handful of bright stars so the other crates have data to show.
+//! Data comes from the HYG database v4.1 (CC BY-SA 4.0), converted to a compact
+//! binary file by `cargo xtask data`.
+
+use std::collections::HashMap;
+
+mod format;
+pub mod names;
+
+pub use format::{DecodeError, decode, encode};
+pub use names::{CONSTELLATIONS, Constellation, normalize};
 
 /// Light years per parsec.
-pub const LY_PER_PC: f64 = 3.261_563_777;
+pub const LY_PER_PC: f32 = 3.261_564;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Star {
-    pub name: &'static str,
+    /// HYG database id. 0 is the Sun.
+    pub hyg: u32,
     pub hip: Option<u32>,
+    pub hd: Option<u32>,
+    pub hr: Option<u32>,
+    pub gliese: Option<String>,
+    pub proper: Option<String>,
+    /// Bayer letter as abbreviated in HYG, e.g. "Alp" or "Alp-1".
+    pub bayer: Option<String>,
+    pub flamsteed: Option<u8>,
+    /// Index into [`CONSTELLATIONS`].
+    pub con: Option<u8>,
     /// Right ascension in hours.
-    pub ra: f64,
+    pub ra: f32,
     /// Declination in degrees.
-    pub dec: f64,
-    /// Distance from Sol in parsecs.
-    pub dist_pc: f64,
+    pub dec: f32,
+    /// Distance from the Sun in parsecs, if a usable parallax exists.
+    pub dist_pc: Option<f32>,
     /// Apparent visual magnitude.
     pub mag: f32,
-    pub spectral: &'static str,
+    pub absmag: f32,
+    /// B-V color index.
+    pub ci: Option<f32>,
+    pub spectral: String,
 }
 
 impl Star {
-    pub fn dist_ly(&self) -> f64 {
-        self.dist_pc * LY_PER_PC
+    pub fn is_sun(&self) -> bool {
+        self.hyg == 0
     }
 
-    /// Unit vector on the celestial sphere (equatorial frame, +Z toward the north pole).
-    pub fn direction(&self) -> [f64; 3] {
+    pub fn dist_ly(&self) -> Option<f32> {
+        self.dist_pc.map(|d| d * LY_PER_PC)
+    }
+
+    pub fn constellation(&self) -> Option<&'static Constellation> {
+        self.con.map(|c| &CONSTELLATIONS[c as usize])
+    }
+
+    /// Unit vector on the celestial sphere, equatorial frame: +X toward RA 0h,
+    /// +Z toward the north celestial pole.
+    pub fn direction(&self) -> [f32; 3] {
         let ra = (self.ra * 15.0).to_radians();
         let dec = self.dec.to_radians();
         [dec.cos() * ra.cos(), dec.cos() * ra.sin(), dec.sin()]
     }
 
-    /// URL-friendly identifier, e.g. "alpha-centauri".
+    /// Position relative to the Sun in parsecs (same frame as `direction`), if
+    /// the distance is known.
+    pub fn position(&self) -> Option<[f32; 3]> {
+        let d = self.dist_pc?;
+        Some(self.direction().map(|v| v * d))
+    }
+
+    /// "Alpha-1 Centauri" style designation, if the star has one.
+    pub fn bayer_name(&self) -> Option<String> {
+        let con = self.constellation()?;
+        Some(format!("{} {}", names::greek_name(self.bayer.as_deref()?)?, con.genitive))
+    }
+
+    /// "61 Cygni" style designation, if the star has one.
+    pub fn flamsteed_name(&self) -> Option<String> {
+        Some(format!("{} {}", self.flamsteed?, self.constellation()?.genitive))
+    }
+
+    /// Best human-readable label: proper name, then Bayer, Flamsteed, Gliese,
+    /// HIP, HD, and finally the HYG id.
+    pub fn display_name(&self) -> String {
+        self.proper
+            .clone()
+            .or_else(|| self.bayer_name())
+            .or_else(|| self.flamsteed_name())
+            .or_else(|| self.gliese.clone())
+            .or_else(|| self.hip.map(|n| format!("HIP {n}")))
+            .or_else(|| self.hd.map(|n| format!("HD {n}")))
+            .unwrap_or_else(|| format!("HYG {}", self.hyg))
+    }
+
+    /// Every designation this star is known by, for display.
+    pub fn designations(&self) -> Vec<String> {
+        let mut out: Vec<String> = [
+            self.proper.clone(),
+            self.bayer_name(),
+            self.flamsteed_name(),
+            self.gliese.clone(),
+            self.hip.map(|n| format!("HIP {n}")),
+            self.hd.map(|n| format!("HD {n}")),
+            self.hr.map(|n| format!("HR {n}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        out.dedup();
+        out
+    }
+
+    /// URL-friendly identifier, e.g. "rigil-kentaurus" or "hip-71683".
     pub fn slug(&self) -> String {
-        self.name
+        self.display_name()
             .to_ascii_lowercase()
             .split(|c: char| !c.is_ascii_alphanumeric())
             .filter(|s| !s.is_empty())
@@ -44,168 +123,231 @@ impl Star {
     }
 }
 
-/// Placeholder sample until the HYG pipeline lands.
-pub fn sample() -> &'static [Star] {
-    const STARS: &[Star] = &[
-        Star {
-            name: "Sirius",
-            hip: Some(32349),
-            ra: 6.7525,
-            dec: -16.7161,
-            dist_pc: 2.64,
-            mag: -1.46,
-            spectral: "A1V",
-        },
-        Star {
-            name: "Canopus",
-            hip: Some(30438),
-            ra: 6.3992,
-            dec: -52.6957,
-            dist_pc: 94.79,
-            mag: -0.74,
-            spectral: "A9II",
-        },
-        Star {
-            name: "Alpha Centauri",
-            hip: Some(71683),
-            ra: 14.6601,
-            dec: -60.8339,
-            dist_pc: 1.34,
-            mag: -0.27,
-            spectral: "G2V",
-        },
-        Star {
-            name: "Arcturus",
-            hip: Some(69673),
-            ra: 14.2610,
-            dec: 19.1825,
-            dist_pc: 11.26,
-            mag: -0.05,
-            spectral: "K1.5III",
-        },
-        Star {
-            name: "Vega",
-            hip: Some(91262),
-            ra: 18.6156,
-            dec: 38.7837,
-            dist_pc: 7.68,
-            mag: 0.03,
-            spectral: "A0V",
-        },
-        Star {
-            name: "Capella",
-            hip: Some(24608),
-            ra: 5.2782,
-            dec: 45.9980,
-            dist_pc: 13.12,
-            mag: 0.08,
-            spectral: "G8III",
-        },
-        Star {
-            name: "Rigel",
-            hip: Some(24436),
-            ra: 5.2423,
-            dec: -8.2016,
-            dist_pc: 264.6,
-            mag: 0.13,
-            spectral: "B8Ia",
-        },
-        Star {
-            name: "Procyon",
-            hip: Some(37279),
-            ra: 7.6550,
-            dec: 5.2250,
-            dist_pc: 3.51,
-            mag: 0.37,
-            spectral: "F5IV",
-        },
-        Star {
-            name: "Betelgeuse",
-            hip: Some(27989),
-            ra: 5.9195,
-            dec: 7.4071,
-            dist_pc: 168.1,
-            mag: 0.42,
-            spectral: "M1Ia",
-        },
-        Star {
-            name: "Altair",
-            hip: Some(97649),
-            ra: 19.8464,
-            dec: 8.8683,
-            dist_pc: 5.13,
-            mag: 0.76,
-            spectral: "A7V",
-        },
-        Star {
-            name: "Aldebaran",
-            hip: Some(21421),
-            ra: 4.5987,
-            dec: 16.5093,
-            dist_pc: 20.43,
-            mag: 0.86,
-            spectral: "K5III",
-        },
-        Star {
-            name: "Antares",
-            hip: Some(80763),
-            ra: 16.4901,
-            dec: -26.4320,
-            dist_pc: 170.0,
-            mag: 0.91,
-            spectral: "M1.5Iab",
-        },
-        Star {
-            name: "Polaris",
-            hip: Some(11767),
-            ra: 2.5302,
-            dec: 89.2641,
-            dist_pc: 132.6,
-            mag: 1.98,
-            spectral: "F7Ib",
-        },
-        Star {
-            name: "Deneb",
-            hip: Some(102098),
-            ra: 20.6905,
-            dec: 45.2803,
-            dist_pc: 802.0,
-            mag: 1.25,
-            spectral: "A2Ia",
-        },
-    ];
-    STARS
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hit {
+    pub index: usize,
+    /// The designation that matched, in display form.
+    pub label: String,
+    pub exact: bool,
 }
 
-pub fn find(query: &str) -> Option<&'static Star> {
-    let q = query.trim();
-    sample().iter().find(|s| s.name.eq_ignore_ascii_case(q))
+pub struct Catalog {
+    stars: Vec<Star>,
+    /// Sorted (normalized key, star index) pairs for name/designation lookups.
+    keys: Vec<(String, u32)>,
+    hip: HashMap<u32, u32>,
+    hd: HashMap<u32, u32>,
+    hr: HashMap<u32, u32>,
+}
+
+impl Catalog {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Catalog, DecodeError> {
+        Ok(Catalog::new(decode(bytes)?))
+    }
+
+    pub fn new(stars: Vec<Star>) -> Catalog {
+        let mut keys = Vec::new();
+        let (mut hip, mut hd, mut hr) = (HashMap::new(), HashMap::new(), HashMap::new());
+
+        for (i, s) in stars.iter().enumerate() {
+            let i = i as u32;
+            let con = s.constellation().map(|c| c.abbr.to_lowercase());
+            if let Some(p) = &s.proper {
+                keys.push((normalize(p), i));
+            }
+            if let (Some(b), Some(con)) = (&s.bayer, &con) {
+                let full = normalize(&format!("{b} {con}"));
+                // "Alp-1 Cen" is also reachable as plain "alp cen".
+                if let Some((letter, _)) = b.split_once('-') {
+                    keys.push((normalize(&format!("{letter} {con}")), i));
+                }
+                keys.push((full, i));
+            }
+            if let (Some(f), Some(con)) = (s.flamsteed, &con) {
+                keys.push((format!("{f} {con}"), i));
+            }
+            if let Some(g) = &s.gliese {
+                keys.push((normalize(g), i));
+            }
+            if let Some(n) = s.hip {
+                hip.insert(n, i);
+            }
+            if let Some(n) = s.hd {
+                hd.insert(n, i);
+            }
+            if let Some(n) = s.hr {
+                hr.insert(n, i);
+            }
+        }
+        keys.sort();
+        keys.dedup();
+
+        Catalog { stars, keys, hip, hd, hr }
+    }
+
+    pub fn stars(&self) -> &[Star] {
+        &self.stars
+    }
+
+    pub fn len(&self) -> usize {
+        self.stars.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stars.is_empty()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Star> {
+        self.stars.get(index)
+    }
+
+    pub fn by_hip(&self, hip: u32) -> Option<&Star> {
+        self.hip.get(&hip).map(|&i| &self.stars[i as usize])
+    }
+
+    /// Finds stars by proper name, Bayer or Flamsteed designation, or HIP/HD/HR/Gliese
+    /// number. Exact matches come first, then prefix matches by brightness, then
+    /// proper names containing the query.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
+        let q = normalize(query);
+        if q.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+
+        if let Some(hit) = self.numbered(&q) {
+            return vec![hit];
+        }
+
+        let start = self.keys.partition_point(|(k, _)| k.as_str() < q.as_str());
+        let mut exact = Vec::new();
+        let mut prefix = Vec::new();
+        for (key, i) in &self.keys[start..] {
+            if !key.starts_with(&q) {
+                break;
+            }
+            if *key == q { &mut exact } else { &mut prefix }.push(*i as usize);
+        }
+
+        let by_mag = |a: &usize, b: &usize| self.stars[*a].mag.total_cmp(&self.stars[*b].mag);
+        exact.sort_by(by_mag);
+        prefix.sort_by(by_mag);
+
+        let mut hits: Vec<Hit> = Vec::new();
+        let push = |hits: &mut Vec<Hit>, index: usize, exact: bool| {
+            if hits.len() < limit && !hits.iter().any(|h| h.index == index) {
+                hits.push(Hit { index, label: self.label_for(index, &q), exact });
+            }
+        };
+        for i in exact {
+            push(&mut hits, i, true);
+        }
+        for i in prefix {
+            push(&mut hits, i, false);
+        }
+        if hits.len() < limit && q.len() >= 3 {
+            let mut inner: Vec<usize> = self
+                .stars
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.proper.as_deref().is_some_and(|p| normalize(p).contains(&q)))
+                .map(|(i, _)| i)
+                .collect();
+            inner.sort_by(by_mag);
+            for i in inner {
+                push(&mut hits, i, false);
+            }
+        }
+        hits
+    }
+
+    fn numbered(&self, q: &str) -> Option<Hit> {
+        let (prefix, num) = q.split_once(' ')?;
+        let num: u32 = num.parse().ok()?;
+        let (map, label) = match prefix {
+            "hip" => (&self.hip, "HIP"),
+            "hd" => (&self.hd, "HD"),
+            "hr" => (&self.hr, "HR"),
+            _ => return None,
+        };
+        let index = *map.get(&num)? as usize;
+        Some(Hit { index, label: format!("{label} {num}"), exact: true })
+    }
+
+    /// Picks the designation the user was most likely typing.
+    fn label_for(&self, index: usize, q: &str) -> String {
+        let s = &self.stars[index];
+        let starts =
+            |name: &Option<String>| name.as_deref().is_some_and(|n| normalize(n).starts_with(q));
+        if starts(&s.proper) {
+            return s.proper.clone().unwrap();
+        }
+        if s.proper.is_none() {
+            return s.display_name();
+        }
+        for name in [s.bayer_name(), s.flamsteed_name(), s.gliese.clone()] {
+            if name.as_deref().is_some_and(|n| normalize(n).starts_with(q)) {
+                return format!("{} ({})", name.unwrap(), s.proper.as_deref().unwrap());
+            }
+        }
+        s.display_name()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn find_is_case_insensitive() {
-        assert_eq!(find("  vega ").map(|s| s.hip), Some(Some(91262)));
-        assert!(find("not a star").is_none());
+    fn star(hyg: u32, proper: Option<&str>, bayer: Option<&str>, con: &str, mag: f32) -> Star {
+        Star {
+            hyg,
+            hip: Some(hyg * 10),
+            hd: None,
+            hr: None,
+            gliese: None,
+            proper: proper.map(Into::into),
+            bayer: bayer.map(Into::into),
+            flamsteed: None,
+            con: names::constellation_index(con),
+            ra: 1.0,
+            dec: 2.0,
+            dist_pc: Some(10.0),
+            mag,
+            absmag: 1.0,
+            ci: None,
+            spectral: "G2V".into(),
+        }
     }
 
     #[test]
-    fn polaris_points_north() {
-        let [_, _, z] = find("Polaris").unwrap().direction();
-        assert!(z > 0.999);
+    fn roundtrip() {
+        let stars = vec![
+            star(1, Some("Vega"), Some("Alp"), "Lyr", 0.03),
+            Star { dist_pc: None, ci: Some(0.5), con: None, ..star(2, None, None, "Lyr", 9.0) },
+        ];
+        assert_eq!(decode(&encode(&stars)).unwrap(), stars);
+        assert!(matches!(decode(b"nope"), Err(DecodeError::BadMagic)));
+        assert!(matches!(decode(&encode(&stars)[..30]), Err(DecodeError::Truncated)));
     }
 
     #[test]
-    fn slugs() {
-        assert_eq!(find("Alpha Centauri").unwrap().slug(), "alpha-centauri");
+    fn display_names() {
+        let s = star(1, None, Some("Alp-1"), "Cen", 0.0);
+        assert_eq!(s.display_name(), "Alpha-1 Centauri");
+        assert_eq!(s.slug(), "alpha-1-centauri");
+        assert_eq!(star(3, None, None, "Xxx", 0.0).display_name(), "HIP 30");
     }
 
     #[test]
-    fn distance_conversion() {
-        let ly = find("Sirius").unwrap().dist_ly();
-        assert!((ly - 8.61).abs() < 0.01);
+    fn search_orders_exact_then_brightness() {
+        let cat = Catalog::new(vec![
+            star(1, Some("Vegas"), None, "Lyr", 5.0),
+            star(2, Some("Vega"), Some("Alp"), "Lyr", 0.03),
+            star(3, Some("Vegaz"), None, "Lyr", 2.0),
+        ]);
+        let hits: Vec<_> = cat.search("vega", 10).into_iter().map(|h| h.index).collect();
+        assert_eq!(hits, [1, 2, 0]);
+        assert_eq!(cat.search("HIP 20", 5)[0].index, 1);
+        assert_eq!(cat.search("alpha lyrae", 5)[0].label, "Alpha Lyrae (Vega)");
+        assert!(cat.search("   ", 5).is_empty());
     }
 }

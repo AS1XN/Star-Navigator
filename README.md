@@ -14,6 +14,7 @@ Requires Rust (stable) and, on Windows, the MSVC build tools.
 ```sh
 cargo run -p viewer          # desktop
 cargo test --workspace
+cargo xtask data             # rebuild assets/catalog/stars.bin from the HYG database
 ```
 
 Web build:
@@ -26,7 +27,7 @@ cargo xtask serve            # builds into dist/ and serves http://localhost:808
 
 ## Layout
 
-- `crates/catalog` - star data types and lookup
+- `crates/catalog` - star catalog format, loading and search
 - `crates/viewer` - the Bevy app (desktop + wasm)
 - `crates/site` - static site generator (stucco) that hosts the web build
 - `xtask` - build tasks

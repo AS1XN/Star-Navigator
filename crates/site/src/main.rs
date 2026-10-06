@@ -3,6 +3,7 @@
 
 use std::{env, fs, io, path::Path};
 
+use catalog::Catalog;
 use stucco::prelude::*;
 use stucco::theme::{Fonts, Radius};
 use stucco::{Delivery, Meta, Raw};
@@ -16,7 +17,8 @@ fn main() -> io::Result<()> {
 
     let bundle = Bundle::new(theme());
     fs::write(out.join("index.html"), index(&bundle))?;
-    fs::write(out.join("credits.html"), credits(&bundle))?;
+    let catalog = load_catalog()?;
+    fs::write(out.join("credits.html"), credits(&bundle, &catalog))?;
     // GitHub Pages runs Jekyll unless told otherwise.
     fs::write(out.join(".nojekyll"), "")?;
 
@@ -49,12 +51,18 @@ fn index(bundle: &Bundle) -> String {
         .render()
 }
 
-fn credits(bundle: &Bundle) -> String {
-    let stars = catalog::sample()
-        .iter()
-        .map(|s| format!("{} ({:.1} ly)", s.name, s.dist_ly()))
-        .collect::<Vec<_>>()
-        .join(", ");
+fn load_catalog() -> io::Result<Catalog> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/catalog/stars.bin");
+    let bytes = fs::read(&path)?;
+    Catalog::from_bytes(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
+    let named = catalog.stars().iter().filter(|s| s.proper.is_some()).count();
+    let summary = format!(
+        "The map currently holds {} stars, {named} of them with proper names.",
+        catalog.len()
+    );
 
     page(bundle, "Credits - Star-Navigator")
         .main(
@@ -62,11 +70,15 @@ fn credits(bundle: &Bundle) -> String {
                 Stack::new()
                     .space(Space::S4)
                     .child(Heading::new(1, "Credits"))
+                    .child(Heading::new(2, "Star data"))
                     .child(Text::new(
-                        "Star data will come from the HYG Database (CC BY-SA 4.0) by David Nash, \
-                         compiled from the Hipparcos, Yale Bright Star and Gliese catalogs.",
+                        "HYG Database v4.1 by David Nash (astronexus), licensed CC BY-SA 4.0.                          Compiled from the Hipparcos, Yale Bright Star and Gliese catalogs.                          Star names follow the IAU Working Group on Star Names.",
                     ))
-                    .child(Text::new(format!("Currently showing a test sample: {stars}.")))
+                    .child(Link::new(
+                        "github.com/astronexus/HYG-Database",
+                        "https://github.com/astronexus/HYG-Database",
+                    ))
+                    .child(Text::new(summary))
                     .child(Link::new("Back to the map", "index.html")),
             ),
         )

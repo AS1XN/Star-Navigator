@@ -5,6 +5,25 @@ use bevy::prelude::*;
 const HOLO: Color = Color::srgb(0.72, 0.86, 1.0);
 const GLOBE_RADIUS: f32 = 4.0;
 
+/// (RA hours, Dec degrees, magnitude) for a few bright stars. Replaced by the
+/// full catalog in phase 2.
+const PLACEHOLDER_STARS: &[(f32, f32, f32)] = &[
+    (6.7525, -16.7161, -1.46),
+    (6.3992, -52.6957, -0.74),
+    (14.6601, -60.8339, -0.27),
+    (14.2610, 19.1825, -0.05),
+    (18.6156, 38.7837, 0.03),
+    (5.2782, 45.9980, 0.08),
+    (5.2423, -8.2016, 0.13),
+    (7.6550, 5.2250, 0.37),
+    (5.9195, 7.4071, 0.42),
+    (19.8464, 8.8683, 0.76),
+    (4.5987, 16.5093, 0.86),
+    (16.4901, -26.4320, 0.91),
+    (2.5302, 89.2641, 1.98),
+    (20.6905, 45.2803, 1.25),
+];
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -59,11 +78,13 @@ fn spawn_globe(
     commands.spawn((Globe, Transform::default(), Visibility::default())).with_children(|globe| {
         globe.spawn((Mesh3d(band_mesh), MeshMaterial3d(dim.clone())));
 
-        for star in catalog::sample() {
+        for &(ra, dec, mag) in PLACEHOLDER_STARS {
+            let ra = (ra * 15.0f32).to_radians();
+            let dec = dec.to_radians();
             // Equatorial frame is Z-up; Bevy is Y-up.
-            let [x, y, z] = star.direction();
-            let pos = Vec3::new(x as f32, z as f32, -y as f32) * GLOBE_RADIUS;
-            let scale = (2.0 - star.mag * 0.4).clamp(0.6, 2.5);
+            let pos =
+                Vec3::new(dec.cos() * ra.cos(), dec.sin(), -dec.cos() * ra.sin()) * GLOBE_RADIUS;
+            let scale = (2.0 - mag * 0.4).clamp(0.6, 2.5);
             globe.spawn((
                 Mesh3d(star_mesh.clone()),
                 MeshMaterial3d(glow.clone()),

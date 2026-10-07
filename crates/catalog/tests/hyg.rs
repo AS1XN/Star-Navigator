@@ -92,3 +92,35 @@ fn unknown_queries() {
     assert!(CATALOG.search("zzzz not a star", 5).is_empty());
     assert!(CATALOG.search("HIP 999999999", 5).is_empty());
 }
+
+#[test]
+fn alpha_centauri_neighbours() {
+    let index = CATALOG.search("Rigil Kentaurus", 1)[0].index;
+    let near: Vec<_> = CATALOG
+        .nearest(index, 3)
+        .into_iter()
+        .map(|(i, d)| (CATALOG.get(i).unwrap().display_name(), d))
+        .collect();
+    let names: Vec<&str> = near.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names[0], "Toliman", "{near:?}");
+    assert_eq!(names[1], "Proxima Centauri", "{near:?}");
+    assert_eq!(names[2], "Sol", "{near:?}");
+    assert!((near[2].1 - 1.32).abs() < 0.02);
+    assert!(near.windows(2).all(|w| w[0].1 <= w[1].1));
+}
+
+#[test]
+fn nearest_without_distance_is_empty() {
+    let index = CATALOG.stars().iter().position(|s| s.dist_pc.is_none()).unwrap();
+    assert!(CATALOG.nearest(index, 5).is_empty());
+}
+
+#[test]
+fn physical_estimates() {
+    let (l, r) = top("Sirius").luminosity_and_radius().unwrap();
+    assert!((15.0..40.0).contains(&l), "Sirius L = {l}");
+    assert!((1.4..2.5).contains(&r), "Sirius R = {r}");
+    let (_, r) = top("Betelgeuse").luminosity_and_radius().unwrap();
+    assert!(r > 200.0, "Betelgeuse R = {r}");
+    assert_eq!(top("Betelgeuse").spectral_type().unwrap().description(), "RED SUPERGIANT");
+}

@@ -1,5 +1,6 @@
 mod camera;
 mod data;
+mod dossier;
 mod hud;
 mod locate;
 mod look;
@@ -97,6 +98,7 @@ fn main() {
             look::LookPlugin,
             search::SearchPlugin,
             locate::LocatePlugin,
+            dossier::DossierPlugin,
         ))
         .run();
 }

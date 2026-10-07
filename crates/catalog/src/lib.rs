@@ -8,6 +8,7 @@ use std::collections::HashMap;
 mod format;
 mod lines;
 pub mod names;
+pub mod physics;
 
 pub use format::{DecodeError, decode, encode};
 pub use lines::{Polyline, decode_lines, encode_lines};
@@ -51,6 +52,19 @@ impl Star {
 
     pub fn dist_ly(&self) -> Option<f32> {
         self.dist_pc.map(|d| d * LY_PER_PC)
+    }
+
+    pub fn spectral_type(&self) -> Option<physics::Spectral> {
+        physics::Spectral::parse(&self.spectral)
+    }
+
+    /// Estimated bolometric luminosity and radius in solar units. Needs a distance
+    /// (for the absolute magnitude) and a parseable spectral type.
+    pub fn luminosity_and_radius(&self) -> Option<(f32, f32)> {
+        self.dist_pc?;
+        let t = self.spectral_type()?.temperature_k();
+        let l = physics::luminosity_solar(self.absmag, t);
+        Some((l, physics::radius_solar(l, t)))
     }
 
     pub fn constellation(&self) -> Option<&'static Constellation> {
@@ -201,6 +215,31 @@ impl Catalog {
 
     pub fn get(&self, index: usize) -> Option<&Star> {
         self.stars.get(index)
+    }
+
+    /// The `n` stars closest to `index` in space (the Sun included), nearest first,
+    /// with distances in parsecs. Empty if the star has no distance.
+    pub fn nearest(&self, index: usize, n: usize) -> Vec<(usize, f32)> {
+        let Some(origin) = self.stars.get(index).and_then(Star::position) else {
+            return Vec::new();
+        };
+        let mut found: Vec<(usize, f32)> = Vec::with_capacity(n + 1);
+        for (i, star) in self.stars.iter().enumerate() {
+            if i == index {
+                continue;
+            }
+            let Some(p) = star.position() else { continue };
+            let d = ((p[0] - origin[0]).powi(2)
+                + (p[1] - origin[1]).powi(2)
+                + (p[2] - origin[2]).powi(2))
+            .sqrt();
+            if found.len() < n || d < found[found.len() - 1].1 {
+                let at = found.partition_point(|f| f.1 < d);
+                found.insert(at, (i, d));
+                found.truncate(n);
+            }
+        }
+        found
     }
 
     pub fn by_hip(&self, hip: u32) -> Option<&Star> {

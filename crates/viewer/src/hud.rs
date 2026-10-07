@@ -1,8 +1,7 @@
-//! On-screen readouts: status line, help, hover tag and the selected star's data plate.
+//! On-screen readouts: status line, key help and the hover tag.
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use catalog::Star;
 
 use crate::data::{LoadError, Sky};
 use crate::look::Tinted;
@@ -22,10 +21,7 @@ impl Plugin for HudPlugin {
                     t.0.clear();
                 }
             })
-            .add_systems(
-                Update,
-                (status_text, hover_tag, data_plate).run_if(in_state(AppState::Ready)),
-            );
+            .add_systems(Update, (status_text, hover_tag).run_if(in_state(AppState::Ready)));
     }
 }
 
@@ -35,8 +31,6 @@ struct Center;
 struct Status;
 #[derive(Component)]
 struct HoverTag;
-#[derive(Component)]
-struct Plate;
 #[derive(Component)]
 struct Help;
 
@@ -106,14 +100,6 @@ fn spawn_hud(mut commands: Commands) {
         Tinted(1.0),
         Node { position_type: PositionType::Absolute, ..default() },
     ));
-    commands.spawn((
-        Plate,
-        Text::new(""),
-        font(14.0),
-        TextColor(HOLO),
-        Tinted(1.0),
-        Node { position_type: PositionType::Absolute, left: px(24), top: px(20), ..default() },
-    ));
 }
 
 fn loading_text(error: Option<Res<LoadError>>, mut q: Single<&mut Text, With<Center>>) {
@@ -147,6 +133,7 @@ fn hover_tag(
     selection: Res<Selection>,
     sky: Res<Sky>,
     window: Single<&Window, With<PrimaryWindow>>,
+    scale: Res<UiScale>,
     mut tag: Single<(&mut Text, &mut Node), With<HoverTag>>,
 ) {
     let (text, node) = &mut *tag;
@@ -154,45 +141,10 @@ fn hover_tag(
         (Some(i), Some(cursor)) => {
             let star = &sky.catalog.stars()[i];
             text.0 = format!("{}  {:+.2}", star.display_name().to_uppercase(), star.mag);
-            node.left = px(cursor.x + 16.0);
-            node.top = px(cursor.y - 22.0);
+            // UI units are scaled by UiScale; cursor coordinates are not.
+            node.left = px((cursor.x + 16.0) / scale.0);
+            node.top = px((cursor.y - 22.0) / scale.0);
         }
         _ => text.0.clear(),
     }
-}
-
-fn data_plate(selection: Res<Selection>, sky: Res<Sky>, mut plate: Single<&mut Text, With<Plate>>) {
-    if !selection.is_changed() {
-        return;
-    }
-    plate.0 = selection.selected.map(|i| describe(&sky.catalog.stars()[i])).unwrap_or_default();
-}
-
-fn describe(s: &Star) -> String {
-    let mut lines = vec![format!("> {}", s.display_name().to_uppercase())];
-    let others: Vec<String> = s.designations().into_iter().skip(1).collect();
-    if !others.is_empty() {
-        lines.push(others.join("  /  "));
-    }
-    lines.push(String::new());
-    if let Some(c) = s.constellation() {
-        lines.push(format!("CONSTELLATION  {}", c.name.to_uppercase()));
-    }
-    let ra = s.ra;
-    lines.push(format!(
-        "RA  {:02}h {:02}m {:04.1}s   DEC  {:+.3} DEG",
-        ra.trunc() as u32,
-        (ra.fract() * 60.0).trunc() as u32,
-        (ra * 3600.0) % 60.0,
-        s.dec
-    ));
-    lines.push(match (s.dist_ly(), s.dist_pc) {
-        (Some(ly), Some(pc)) => format!("DISTANCE  {ly:.2} LY  ({pc:.2} PC)"),
-        _ => "DISTANCE  UNKNOWN".into(),
-    });
-    lines.push(format!("MAGNITUDE  {:+.2} APP  /  {:+.2} ABS", s.mag, s.absmag));
-    if !s.spectral.is_empty() {
-        lines.push(format!("SPECTRAL CLASS  {}", s.spectral));
-    }
-    lines.join("\n")
 }

@@ -12,6 +12,8 @@ mod touch;
 
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
+use bevy::render::settings::{Backends, WgpuSettings};
 
 pub const HOLO: Color = Color::srgb(0.72, 0.86, 1.0);
 pub const GLOBE_RADIUS: f32 = 4.0;
@@ -68,6 +70,17 @@ pub fn asset_root() -> String {
     }
 }
 
+/// On Windows, prefer DirectX 12: with the same scene, Vulkan's allocator reserved
+/// about 680 MB of GPU memory against about 280 MB for DX12 (shared memory on
+/// integrated GPUs counts against system RAM). `WGPU_BACKEND` still overrides.
+fn render_settings() -> WgpuSettings {
+    let mut settings = WgpuSettings::default();
+    if cfg!(target_os = "windows") && std::env::var_os("WGPU_BACKEND").is_none() {
+        settings.backends = Some(Backends::DX12);
+    }
+    settings
+}
+
 fn main() {
     App::new()
         .add_plugins(
@@ -86,7 +99,8 @@ fn main() {
                     file_path: asset_root(),
                     meta_check: AssetMetaCheck::Never,
                     ..default()
-                }),
+                })
+                .set(RenderPlugin { render_creation: render_settings().into(), ..default() }),
         )
         .insert_resource(ClearColor(Color::BLACK))
         .init_state::<AppState>()

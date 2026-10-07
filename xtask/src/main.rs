@@ -82,10 +82,20 @@ fn web() -> Result {
 
     let bg = dist.join("pkg").join("star-navigator_bg.wasm");
     let before = fs::metadata(&bg)?.len();
-    fs::write(&bg, strip_custom_sections(&fs::read(&bg)?)?)?;
-    eprintln!("stripped wasm: {} -> {} KB", before / 1024, fs::metadata(&bg)?.len() / 1024);
+    let wasm = strip_custom_sections(&fs::read(&bg)?)?;
+    fs::write(&bg, &wasm)?;
+    eprintln!("stripped wasm: {} -> {} KB", before / 1024, wasm.len() / 1024);
 
-    run(Command::new("cargo").args(["run", "--package", "site", "--release", "--"]).arg(&dist))?;
+    // Name the folder after the build's contents. GitHub Pages lets browsers cache
+    // files for 10 minutes, so a fixed `pkg/` path could pair a fresh page with
+    // last release's wasm.
+    let pkg = format!("pkg-{:08x}", fnv1a(&wasm) as u32);
+    fs::rename(dist.join("pkg"), dist.join(&pkg))?;
+
+    run(Command::new("cargo")
+        .args(["run", "--package", "site", "--release", "--"])
+        .arg(&dist)
+        .arg(&pkg))?;
 
     let assets = root.join("assets");
     if assets.exists() {
@@ -115,6 +125,11 @@ fn check_bindgen_version() -> Result {
         .into());
     }
     Ok(())
+}
+
+/// 64-bit FNV-1a, enough to fingerprint a build.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// Drops debug info and the name section from a wasm module. Saves installing

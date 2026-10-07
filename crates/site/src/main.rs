@@ -17,6 +17,8 @@ const LIST_MAG: f32 = 5.5;
 
 fn main() -> io::Result<()> {
     let out = env::args().nth(1).unwrap_or_else(|| "dist".into());
+    // Folder holding the wasm build; xtask names it after the build's contents.
+    let pkg = env::args().nth(2).unwrap_or_else(|| "pkg".into());
     let out = Path::new(&out);
     fs::create_dir_all(out)?;
 
@@ -28,6 +30,7 @@ fn main() -> io::Result<()> {
         out.join("index.html"),
         viewer_page(
             &bundle,
+            &pkg,
             "Star-Navigator",
             "Interactive map of the real night sky and our stellar neighbourhood, \
              in an analog hologram style.",
@@ -44,7 +47,7 @@ fn main() -> io::Result<()> {
         let title = format!("{} - Star-Navigator", star.display_name());
         fs::write(
             dir.join("index.html"),
-            viewer_page(&bundle, &title, &star_summary(star), "../../", Some(slug)),
+            viewer_page(&bundle, &pkg, &title, &star_summary(star), "../../", Some(slug)),
         )?;
         urls.push(format!("star/{slug}/"));
     }
@@ -100,6 +103,7 @@ fn escape_attr(s: &str) -> String {
 /// site root, so star pages two levels deep load the same build.
 fn viewer_page(
     bundle: &Bundle,
+    pkg: &str,
     title: &str,
     description: &str,
     base: &str,
@@ -115,7 +119,7 @@ fn viewer_page(
     page(bundle, title)
         .meta(Meta::description(description))
         .head(Raw::trusted(head))
-        .body(Raw::trusted(VIEWER_BODY.replace("{focus}", &focus_attr)))
+        .body(Raw::trusted(VIEWER_BODY.replace("{focus}", &focus_attr).replace("{pkg}", pkg)))
         .render()
 }
 
@@ -319,7 +323,7 @@ const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
 <div id="boot">INITIALIZING STAR CHARTS...</div>
 <nav class="site-nav"><a href="catalog/index.html">CATALOG</a><a href="credits.html">CREDITS</a></nav>
 <script type="module">
-  import init from "./pkg/star-navigator.js";
+  import init from "./{pkg}/star-navigator.js";
   const boot = document.getElementById("boot");
   init().catch((e) => {
     // Bevy exits its init via an exception on the web; only real failures matter.
@@ -339,11 +343,12 @@ mod tests {
     #[test]
     fn viewer_page_paths() {
         let bundle = Bundle::new(theme());
-        let root = viewer_page(&bundle, "T", "D", "", None);
+        let root = viewer_page(&bundle, "pkg-1234abcd", "T", "D", "", None);
         assert!(!root.contains("<base"));
         assert!(root.contains(r#"<canvas id="viewer">"#));
+        assert!(root.contains(r#"import init from "./pkg-1234abcd/star-navigator.js""#));
 
-        let star = viewer_page(&bundle, "Vega", "D", "../../", Some("vega"));
+        let star = viewer_page(&bundle, "pkg-1234abcd", "Vega", "D", "../../", Some("vega"));
         assert!(star.contains(r#"<base href="../../">"#));
         assert!(star.contains(r#"<canvas id="viewer" data-focus="vega">"#));
     }

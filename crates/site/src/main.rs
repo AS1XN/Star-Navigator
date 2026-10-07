@@ -1,14 +1,19 @@
-//! Generates the static website: the page that hosts the wasm viewer plus
-//! supporting pages. Usage: `site <out-dir>`.
+//! Generates the static website: the map page, one map page per named star (for
+//! deep links like `star/vega/`), the star catalog by constellation, credits, and a
+//! sitemap. Usage: `site <out-dir>`.
 
+use std::collections::HashMap;
 use std::{env, fs, io, path::Path};
 
-use catalog::Catalog;
+use catalog::{CONSTELLATIONS, Catalog, LY_PER_PC, Star};
 use stucco::prelude::*;
 use stucco::theme::{Fonts, Radius};
 use stucco::{Delivery, Meta, Raw};
 
 const MONO: &str = r#""IBM Plex Mono", ui-monospace, Consolas, "Courier New", monospace"#;
+const SITE_URL: &str = "https://as1xn.github.io/Star-Navigator/";
+/// Faintest star listed on a constellation page (named stars are always listed).
+const LIST_MAG: f32 = 5.5;
 
 fn main() -> io::Result<()> {
     let out = env::args().nth(1).unwrap_or_else(|| "dist".into());
@@ -16,13 +21,53 @@ fn main() -> io::Result<()> {
     fs::create_dir_all(out)?;
 
     let bundle = Bundle::new(theme());
-    fs::write(out.join("index.html"), index(&bundle))?;
     let catalog = load_catalog()?;
+    let mut urls = vec![String::new(), "catalog/".into(), "credits.html".into()];
+
+    fs::write(
+        out.join("index.html"),
+        viewer_page(
+            &bundle,
+            "Star-Navigator",
+            "Interactive map of the real night sky and our stellar neighbourhood, \
+             in an analog hologram style.",
+            "",
+            None,
+        ),
+    )?;
+
+    let pages: HashMap<usize, String> = catalog.named_slugs().into_iter().collect();
+    for (&index, slug) in &pages {
+        let star = &catalog.stars()[index];
+        let dir = out.join("star").join(slug);
+        fs::create_dir_all(&dir)?;
+        let title = format!("{} - Star-Navigator", star.display_name());
+        fs::write(
+            dir.join("index.html"),
+            viewer_page(&bundle, &title, &star_summary(star), "../../", Some(slug)),
+        )?;
+        urls.push(format!("star/{slug}/"));
+    }
+
+    let catalog_dir = out.join("catalog");
+    fs::create_dir_all(&catalog_dir)?;
+    fs::write(catalog_dir.join("index.html"), catalog_index(&bundle, &catalog))?;
+    for (i, con) in CONSTELLATIONS.iter().enumerate() {
+        let file = format!("{}.html", con.abbr.to_lowercase());
+        fs::write(catalog_dir.join(&file), constellation_page(&bundle, &catalog, &pages, i as u8))?;
+        urls.push(format!("catalog/{file}"));
+    }
+
     fs::write(out.join("credits.html"), credits(&bundle, &catalog))?;
+    fs::write(out.join("sitemap.xml"), sitemap(&urls))?;
+    fs::write(
+        out.join("robots.txt"),
+        format!("User-agent: *\nAllow: /\nSitemap: {SITE_URL}sitemap.xml\n"),
+    )?;
     // GitHub Pages runs Jekyll unless told otherwise.
     fs::write(out.join(".nojekyll"), "")?;
 
-    println!("site written to {}", out.display());
+    println!("site written to {} ({} pages)", out.display(), urls.len());
     Ok(())
 }
 
@@ -41,20 +86,180 @@ fn page<'b, 'a>(bundle: &'b Bundle, title: &str) -> Page<'b, 'a> {
         .body_attrs(Attrs::default().attr("data-theme", "dark"))
 }
 
-fn index(bundle: &Bundle) -> String {
-    page(bundle, "Star-Navigator")
-        .meta(Meta::description(
-            "Interactive map of the real night sky in an analog hologram style.",
-        ))
-        .head(Raw::trusted(VIEWER_CSS))
-        .body(Raw::trusted(VIEWER_BODY))
-        .render()
-}
-
 fn load_catalog() -> io::Result<Catalog> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/catalog/stars.bin");
     let bytes = fs::read(&path)?;
     Catalog::from_bytes(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// The map. `base` makes every relative URL (wasm, assets, links) resolve from the
+/// site root, so star pages two levels deep load the same build.
+fn viewer_page(
+    bundle: &Bundle,
+    title: &str,
+    description: &str,
+    base: &str,
+    focus: Option<&str>,
+) -> String {
+    let mut head = String::new();
+    if !base.is_empty() {
+        head += &format!(r#"<base href="{base}">"#);
+    }
+    head += VIEWER_CSS;
+    let focus_attr =
+        focus.map(|f| format!(r#" data-focus="{}""#, escape_attr(f))).unwrap_or_default();
+    page(bundle, title)
+        .meta(Meta::description(description))
+        .head(Raw::trusted(head))
+        .body(Raw::trusted(VIEWER_BODY.replace("{focus}", &focus_attr)))
+        .render()
+}
+
+fn star_summary(s: &Star) -> String {
+    let kind = s
+        .spectral_type()
+        .map(|sp| sp.description().to_lowercase())
+        .unwrap_or_else(|| "star".into());
+    let place = s.constellation().map(|c| format!(" in {}", c.name)).unwrap_or_default();
+    let dist =
+        s.dist_ly().map(|ly| format!(", {ly:.1} light years from the Sun")).unwrap_or_default();
+    format!(
+        "{}: {kind}{place}{dist}. Locate it in 3D on an interactive map of the real night sky.",
+        s.display_name()
+    )
+}
+
+/// Site pages (not the map) share a header with links back to the map and catalog.
+/// `root` is the relative path to the site root.
+fn site_page(
+    bundle: &Bundle,
+    title: &str,
+    description: &str,
+    root: &str,
+    body: impl Render,
+) -> String {
+    let nav = Cluster::new()
+        .space(Space::S4)
+        .child(Link::new("MAP", format!("{root}index.html")))
+        .child(Link::new("CATALOG", format!("{root}catalog/index.html")))
+        .child(Link::new("CREDITS", format!("{root}credits.html")));
+    page(bundle, &format!("{title} - Star-Navigator"))
+        .meta(Meta::description(description))
+        .main(Container::new().child(Stack::new().space(Space::S4).child(nav).child(body)))
+        .render()
+}
+
+fn ly_cell(s: &Star) -> String {
+    s.dist_pc.map(|pc| format!("{:.1}", pc * LY_PER_PC)).unwrap_or_else(|| "--".into())
+}
+
+/// Where a star links to from the catalog: its own page if it has one, otherwise
+/// the map with a query.
+fn star_href(index: usize, s: &Star, pages: &HashMap<usize, String>, root: &str) -> String {
+    match pages.get(&index) {
+        Some(slug) => format!("{root}star/{slug}/"),
+        None => format!("{root}index.html?star={}", s.slug()),
+    }
+}
+
+fn catalog_index(bundle: &Bundle, catalog: &Catalog) -> String {
+    let mut cons: Vec<(usize, &catalog::Constellation)> =
+        CONSTELLATIONS.iter().enumerate().collect();
+    cons.sort_by_key(|(_, c)| c.name);
+
+    let mut table = Table::new("The 88 constellations").header(
+        Row::new()
+            .header("Constellation")
+            .header("Abbr.")
+            .header("Named stars")
+            .header("Brightest"),
+    );
+    for (i, con) in cons {
+        let members = catalog.stars().iter().filter(|s| s.con == Some(i as u8));
+        let named = members.clone().filter(|s| s.proper.is_some()).count();
+        // Stars are sorted brightest first, so the first member is the brightest.
+        let brightest = members
+            .clone()
+            .next()
+            .map(|s| format!("{} ({:+.2})", s.display_name(), s.mag))
+            .unwrap_or_default();
+        table = table.row(
+            Row::new()
+                .cell(Link::new(con.name, format!("{}.html", con.abbr.to_lowercase())))
+                .cell(con.abbr)
+                .cell(named.to_string())
+                .cell(brightest),
+        );
+    }
+    let body = Stack::new()
+        .space(Space::S4)
+        .child(Heading::new(1, "Star catalog"))
+        .child(Text::new(format!(
+            "{} stars from the HYG database, grouped by constellation. Each constellation page \
+             lists its named stars and everything brighter than magnitude {LIST_MAG}.",
+            catalog.len()
+        )))
+        .child(table);
+    site_page(bundle, "Star catalog", "Browse the stars of all 88 constellations.", "../", body)
+}
+
+fn constellation_page(
+    bundle: &Bundle,
+    catalog: &Catalog,
+    pages: &HashMap<usize, String>,
+    con: u8,
+) -> String {
+    let c = &CONSTELLATIONS[con as usize];
+    let stars: Vec<(usize, &Star)> = catalog
+        .stars()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.con == Some(con) && (s.proper.is_some() || s.mag <= LIST_MAG))
+        .collect();
+
+    let mut table = Table::new(format!("Stars of {}", c.name)).header(
+        Row::new()
+            .header("Star")
+            .header("Designation")
+            .header("Mag.")
+            .header("Distance (ly)")
+            .header("Class"),
+    );
+    for &(index, s) in &stars {
+        let designation = s.bayer_name().or_else(|| s.flamsteed_name()).unwrap_or_default();
+        let class = match s.spectral_type() {
+            Some(sp) => format!("{} - {}", s.spectral, sp.description().to_lowercase()),
+            None => s.spectral.clone(),
+        };
+        table = table.row(
+            Row::new()
+                .cell(Link::new(s.display_name(), star_href(index, s, pages, "../")))
+                .cell(designation)
+                .cell(format!("{:+.2}", s.mag))
+                .cell(ly_cell(s))
+                .cell(class),
+        );
+    }
+    let body = Stack::new()
+        .space(Space::S4)
+        .child(Heading::new(1, format!("{} ({})", c.name, c.abbr)))
+        .child(Text::new(format!(
+            "{} stars listed, brightest first. Select a star to locate it on the map.",
+            stars.len()
+        )))
+        .child(table)
+        .child(Link::new("All constellations", "index.html"));
+    site_page(
+        bundle,
+        c.name,
+        &format!("Named and bright stars in the constellation {}.", c.name),
+        "../",
+        body,
+    )
 }
 
 fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
@@ -63,35 +268,42 @@ fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
         "The map currently holds {} stars, {named} of them with proper names.",
         catalog.len()
     );
+    let body = Stack::new()
+        .space(Space::S4)
+        .child(Heading::new(1, "Credits"))
+        .child(Heading::new(2, "Star data"))
+        .child(Text::new(
+            "HYG Database v4.1 by David Nash (astronexus), licensed CC BY-SA 4.0. \
+             Compiled from the Hipparcos, Yale Bright Star and Gliese catalogs. \
+             Star names follow the IAU Working Group on Star Names.",
+        ))
+        .child(Link::new(
+            "github.com/astronexus/HYG-Database",
+            "https://github.com/astronexus/HYG-Database",
+        ))
+        .child(Text::new(summary))
+        .child(Heading::new(2, "Constellation figures"))
+        .child(Text::new(
+            "Stick figures from d3-celestial by Olaf Frohn, BSD 3-Clause license. \
+             Copyright (c) 2015, Olaf Frohn.",
+        ))
+        .child(Link::new(
+            "github.com/ofrohn/d3-celestial",
+            "https://github.com/ofrohn/d3-celestial",
+        ));
+    site_page(bundle, "Credits", "Data sources and licenses for Star-Navigator.", "", body)
+}
 
-    page(bundle, "Credits - Star-Navigator")
-        .main(
-            Container::new().child(
-                Stack::new()
-                    .space(Space::S4)
-                    .child(Heading::new(1, "Credits"))
-                    .child(Heading::new(2, "Star data"))
-                    .child(Text::new(
-                        "HYG Database v4.1 by David Nash (astronexus), licensed CC BY-SA 4.0.                          Compiled from the Hipparcos, Yale Bright Star and Gliese catalogs.                          Star names follow the IAU Working Group on Star Names.",
-                    ))
-                    .child(Link::new(
-                        "github.com/astronexus/HYG-Database",
-                        "https://github.com/astronexus/HYG-Database",
-                    ))
-                    .child(Text::new(summary))
-                    .child(Heading::new(2, "Constellation figures"))
-                    .child(Text::new(
-                        "Stick figures from d3-celestial by Olaf Frohn, BSD 3-Clause license. \
-                         Copyright (c) 2015, Olaf Frohn.",
-                    ))
-                    .child(Link::new(
-                        "github.com/ofrohn/d3-celestial",
-                        "https://github.com/ofrohn/d3-celestial",
-                    ))
-                    .child(Link::new("Back to the map", "index.html")),
-            ),
-        )
-        .render()
+fn sitemap(urls: &[String]) -> String {
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for url in urls {
+        s += &format!("  <url><loc>{SITE_URL}{url}</loc></url>\n");
+    }
+    s += "</urlset>\n";
+    s
 }
 
 const VIEWER_CSS: &str = r#"<style>
@@ -100,12 +312,12 @@ const VIEWER_CSS: &str = r#"<style>
   #boot { position: fixed; inset: 0; display: grid; place-items: center;
           color: oklch(85% 0.06 225); letter-spacing: 0.2em; pointer-events: none; }
   .site-nav { position: fixed; top: 16px; right: 20px; font-size: 0.8rem; }
-  .site-nav a { color: oklch(75% 0.06 225); }
+  .site-nav a { color: oklch(75% 0.06 225); margin-left: 1.2em; }
 </style>"#;
 
-const VIEWER_BODY: &str = r#"<canvas id="viewer"></canvas>
+const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
 <div id="boot">INITIALIZING STAR CHARTS...</div>
-<nav class="site-nav"><a href="credits.html">CREDITS</a></nav>
+<nav class="site-nav"><a href="catalog/index.html">CATALOG</a><a href="credits.html">CREDITS</a></nav>
 <script type="module">
   import init from "./pkg/star-navigator.js";
   const boot = document.getElementById("boot");
@@ -119,3 +331,42 @@ const VIEWER_BODY: &str = r#"<canvas id="viewer"></canvas>
   new MutationObserver(() => boot.remove()).observe(
     document.getElementById("viewer"), { attributes: true });
 </script>"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn viewer_page_paths() {
+        let bundle = Bundle::new(theme());
+        let root = viewer_page(&bundle, "T", "D", "", None);
+        assert!(!root.contains("<base"));
+        assert!(root.contains(r#"<canvas id="viewer">"#));
+
+        let star = viewer_page(&bundle, "Vega", "D", "../../", Some("vega"));
+        assert!(star.contains(r#"<base href="../../">"#));
+        assert!(star.contains(r#"<canvas id="viewer" data-focus="vega">"#));
+    }
+
+    #[test]
+    fn summaries_and_links() {
+        let catalog = load_catalog().unwrap();
+        let pages: HashMap<usize, String> = catalog.named_slugs().into_iter().collect();
+        let (index, vega) = catalog
+            .stars()
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.proper.as_deref() == Some("Vega"))
+            .unwrap();
+        let text = star_summary(vega);
+        assert!(
+            text.starts_with("Vega: white main-sequence star in Lyra, 25.0 light years"),
+            "{text}"
+        );
+        assert_eq!(star_href(index, vega, &pages, "../"), "../star/vega/");
+
+        let unnamed = catalog.stars().iter().position(|s| s.proper.is_none()).unwrap();
+        let href = star_href(unnamed, &catalog.stars()[unnamed], &pages, "../");
+        assert!(href.starts_with("../index.html?star="), "{href}");
+    }
+}

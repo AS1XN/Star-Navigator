@@ -177,6 +177,26 @@ static WORDS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Strips common Latin accents (e.g. e-acute -> e) so names like Belenos match plain
+/// typing and make clean URL slugs. Expects lowercase input.
+pub fn fold_accent(c: char) -> char {
+    match c {
+        '\u{e0}'..='\u{e5}' | '\u{101}' => 'a',
+        '\u{113}' => 'e',
+        '\u{12b}' => 'i',
+        '\u{14d}' => 'o',
+        '\u{16b}' => 'u',
+        '\u{e7}' => 'c',
+        '\u{e8}'..='\u{eb}' => 'e',
+        '\u{ec}'..='\u{ef}' => 'i',
+        '\u{f1}' => 'n',
+        '\u{f2}'..='\u{f6}' | '\u{f8}' => 'o',
+        '\u{f9}'..='\u{fc}' => 'u',
+        '\u{fd}' | '\u{ff}' => 'y',
+        _ => c,
+    }
+}
+
 /// Reduces a name or designation to a canonical search key, so that "Alpha Lyrae",
 /// "alp Lyr", "α Lyr" and "ALPHA-LYR" all become "alp lyr", and "Alpha-1 Centauri"
 /// becomes "alp1 cen".
@@ -188,7 +208,7 @@ pub fn normalize(text: &str) -> String {
             s.push_str(name);
             s.push(' ');
         } else if ch.is_alphanumeric() {
-            s.extend(ch.to_lowercase());
+            s.extend(ch.to_lowercase().map(fold_accent));
         } else {
             s.push(' ');
         }

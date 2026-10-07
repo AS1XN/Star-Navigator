@@ -40,6 +40,13 @@ pub struct Locate {
     note: Option<String>,
 }
 
+impl Locate {
+    /// The star currently being shown by a locate, if any.
+    pub fn current(&self) -> Option<usize> {
+        self.target.filter(|_| self.into_field || self.note.is_some())
+    }
+}
+
 pub fn locate_input(
     keys: Res<ButtonInput<KeyCode>>,
     selection: Res<Selection>,

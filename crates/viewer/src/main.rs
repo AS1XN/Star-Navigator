@@ -1,5 +1,6 @@
 mod camera;
 mod data;
+mod deeplink;
 mod dossier;
 mod hud;
 mod locate;
@@ -99,6 +100,7 @@ fn main() {
             search::SearchPlugin,
             locate::LocatePlugin,
             dossier::DossierPlugin,
+            deeplink::DeepLinkPlugin,
         ))
         .run();
 }

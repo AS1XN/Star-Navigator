@@ -131,7 +131,10 @@ impl Star {
     /// URL-friendly identifier, e.g. "rigil-kentaurus" or "hip-71683".
     pub fn slug(&self) -> String {
         self.display_name()
-            .to_ascii_lowercase()
+            .to_lowercase()
+            .chars()
+            .map(names::fold_accent)
+            .collect::<String>()
             .split(|c: char| !c.is_ascii_alphanumeric())
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
@@ -240,6 +243,50 @@ impl Catalog {
             }
         }
         found
+    }
+
+    /// URL slugs for every named star (the Sun excluded), unique across the catalog:
+    /// a name shared by several stars gets a catalog suffix after the first, e.g.
+    /// "p-eridani" and "p-eridani-hip-7752".
+    pub fn named_slugs(&self) -> Vec<(usize, String)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for (i, s) in self.stars.iter().enumerate() {
+            if s.proper.is_none() || s.is_sun() {
+                continue;
+            }
+            let mut slug = s.slug();
+            if !seen.insert(slug.clone()) {
+                slug = match s.hip {
+                    Some(hip) => format!("{slug}-hip-{hip}"),
+                    None => format!("{slug}-hyg-{}", s.hyg),
+                };
+                seen.insert(slug.clone());
+            }
+            out.push((i, slug));
+        }
+        out
+    }
+
+    /// The star a URL slug refers to: a "-hip-N" / "-hyg-N" suffix picks that exact
+    /// star, anything else is treated as a search ("rigil-kentaurus", "hip-71683",
+    /// "alpha-1-centauri").
+    pub fn resolve_slug(&self, slug: &str) -> Option<usize> {
+        let slug = slug.trim().to_ascii_lowercase();
+        for (tag, by_hyg) in [("-hip-", false), ("-hyg-", true)] {
+            let Some(n) = slug.rsplit_once(tag).and_then(|(_, n)| n.parse::<u32>().ok()) else {
+                continue;
+            };
+            let found = if by_hyg {
+                self.stars.iter().position(|s| s.hyg == n)
+            } else {
+                self.hip.get(&n).map(|&i| i as usize)
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        self.search(&slug.replace('-', " "), 1).first().map(|h| h.index)
     }
 
     pub fn by_hip(&self, hip: u32) -> Option<&Star> {

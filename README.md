@@ -5,7 +5,14 @@ neighbourhood, drawn like an analog hologram from old film sci-fi.
 
 **Live:** https://as1xn.github.io/Star-Navigator/
 
-Early days: see [docs/DESIGN.md](docs/DESIGN.md) for the plan and roadmap.
+Browse the [star catalog](https://as1xn.github.io/Star-Navigator/catalog/) by
+constellation, or link straight to a star:
+[star/vega/](https://as1xn.github.io/Star-Navigator/star/vega/) for named stars, or
+`?star=<name or catalog number>` for anything else (e.g. `?star=hip-71683`).
+Locating a star updates the address bar, so the current view can be shared. On
+desktop, `star-navigator --star vega` does the same.
+
+See [docs/DESIGN.md](docs/DESIGN.md) for the plan and roadmap.
 
 ## Controls
 
@@ -40,6 +47,7 @@ Web build:
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version <version in Cargo.lock> --locked
 cargo xtask serve            # builds into dist/ and serves http://localhost:8080
+cargo xtask serve 8090 --no-build   # another port, reuse the last build
 ```
 
 ## Layout

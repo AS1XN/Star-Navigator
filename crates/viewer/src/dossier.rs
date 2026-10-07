@@ -85,7 +85,6 @@ fn spawn_ui(mut commands: Commands) {
         TextFont { font_size: FontSize::Px(14.0), ..default() },
         TextColor(HOLO),
         Tinted(1.0),
-        BackgroundColor(Color::BLACK.with_alpha(0.6)),
         // Above the tags and hover readout, below the FIND box and tuning panel.
         ZIndex(10),
         Visibility::Hidden,

@@ -124,3 +124,36 @@ fn physical_estimates() {
     assert!(r > 200.0, "Betelgeuse R = {r}");
     assert_eq!(top("Betelgeuse").spectral_type().unwrap().description(), "RED SUPERGIANT");
 }
+
+#[test]
+fn slugs_are_unique_and_resolve() {
+    let slugs = CATALOG.named_slugs();
+    assert!(slugs.len() > 400);
+    let mut seen = std::collections::HashSet::new();
+    for (index, slug) in &slugs {
+        assert!(seen.insert(slug.clone()), "duplicate slug {slug}");
+        assert_eq!(CATALOG.resolve_slug(slug), Some(*index), "{slug} resolves elsewhere");
+    }
+    assert!(slugs.iter().any(|(_, s)| s.starts_with("p-eridani-h")));
+}
+
+#[test]
+fn resolve_free_form_slugs() {
+    let name =
+        |slug: &str| CATALOG.resolve_slug(slug).map(|i| CATALOG.get(i).unwrap().display_name());
+    assert_eq!(name("vega").as_deref(), Some("Vega"));
+    assert_eq!(name("Rigil-Kentaurus").as_deref(), Some("Rigil Kentaurus"));
+    assert_eq!(name("hip-91262").as_deref(), Some("Vega"));
+    assert_eq!(name("alpha-2-centauri").as_deref(), Some("Toliman"));
+    assert_eq!(name("no-such-star-anywhere"), None);
+}
+
+#[test]
+fn accented_names() {
+    let belenos =
+        CATALOG.stars().iter().position(|s| s.proper.as_deref() == Some("B\u{e9}l\u{e9}nos"));
+    let Some(index) = belenos else { return };
+    assert_eq!(CATALOG.get(index).unwrap().slug(), "belenos");
+    assert_eq!(CATALOG.resolve_slug("belenos"), Some(index));
+    assert_eq!(CATALOG.search("belenos", 1)[0].index, index);
+}

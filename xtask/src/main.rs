@@ -3,6 +3,7 @@
 //!   data     convert the HYG csv (downloaded if missing) into assets/catalog/stars.bin
 //!   web      build the wasm viewer and the static site into dist/
 //!   serve    build web, then serve dist/ on http://localhost:8080
+//!            (`serve 8090` picks another port, `--no-build` serves the last build)
 
 mod data;
 
@@ -24,9 +25,14 @@ fn main() {
     let res = match task.as_str() {
         "data" => data::data(env::args().any(|a| a == "--download")),
         "web" => web(),
-        "serve" => web().and_then(|_| serve(8080)),
+        "serve" => {
+            let args: Vec<String> = env::args().skip(2).collect();
+            let port = args.iter().find_map(|a| a.parse().ok()).unwrap_or(8080);
+            let build = if args.iter().any(|a| a == "--no-build") { Ok(()) } else { web() };
+            build.and_then(|_| serve(port))
+        }
         _ => {
-            eprintln!("usage: cargo xtask <data [--download]|web|serve>");
+            eprintln!("usage: cargo xtask <data [--download] | web | serve [port] [--no-build]>");
             exit(2);
         }
     };

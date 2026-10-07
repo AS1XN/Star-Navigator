@@ -49,6 +49,8 @@ fn spawn_box(mut commands: Commands) {
         })
         .with_child((
             SearchBox,
+            crate::look::backed(20),
+            Node { padding: UiRect::axes(px(10), px(6)), ..default() },
             Text::new(""),
             TextFont { font_size: FontSize::Px(15.0), ..default() },
             TextColor(HOLO),

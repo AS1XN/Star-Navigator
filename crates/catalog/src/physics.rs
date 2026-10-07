@@ -120,6 +120,11 @@ impl Spectral {
     pub fn description(&self) -> String {
         match self.lum {
             Some(LumClass::WhiteDwarf) => "WHITE DWARF".into(),
+            // "Dwarf" is only the everyday name for cool main-sequence stars; a hot one
+            // like Vega would read as a white dwarf, which is something else entirely.
+            Some(LumClass::Dwarf) if "OBAF".contains(self.class) => {
+                format!("{} MAIN-SEQUENCE STAR", self.color_word())
+            }
             Some(lum) => format!("{} {}", self.color_word(), lum.label()),
             None if matches!(self.class, 'L' | 'T' | 'Y') => "BROWN DWARF".into(),
             None => format!("{} STAR", self.color_word()),
@@ -219,6 +224,9 @@ mod tests {
         assert_eq!(parse("K5III").description(), "ORANGE GIANT");
         assert_eq!(parse("DA").description(), "WHITE DWARF");
         assert_eq!(parse("A0").description(), "WHITE STAR");
+        assert_eq!(parse("A0Vvar").description(), "WHITE MAIN-SEQUENCE STAR");
+        assert_eq!(parse("B8V").description(), "BLUE-WHITE MAIN-SEQUENCE STAR");
+        assert_eq!(parse("M5Ve").description(), "RED DWARF");
     }
 
     #[test]

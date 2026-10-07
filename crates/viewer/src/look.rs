@@ -36,6 +36,7 @@ impl Plugin for LookPlugin {
                     update_effect,
                     update_stars,
                     tint_text,
+                    show_backed,
                     draw_panel,
                 ),
             );
@@ -205,8 +206,8 @@ impl Look {
 }
 
 #[derive(Resource, Default)]
-struct Tuner {
-    open: bool,
+pub struct Tuner {
+    pub open: bool,
     cursor: usize,
     preset: Option<Handle<BinaryFile>>,
     message: String,
@@ -342,6 +343,24 @@ fn update_stars(
 #[derive(Component)]
 pub struct Tinted(pub f32);
 
+/// Dark translucent backing behind a HUD text block, so stars, reticles and labels
+/// behind it can't make it unreadable. `z` orders overlapping blocks; the block is
+/// hidden while its text is empty.
+#[derive(Component)]
+pub struct Backed;
+
+pub fn backed(z: i32) -> impl Bundle {
+    (Backed, BackgroundColor(Color::BLACK.with_alpha(0.6)), ZIndex(z), Visibility::Hidden)
+}
+
+type BackedText<'a> = (&'a Text, &'a mut Visibility);
+
+fn show_backed(mut blocks: Query<BackedText, (With<Backed>, Changed<Text>)>) {
+    for (text, mut vis) in &mut blocks {
+        vis.set_if_neq(if text.0.is_empty() { Visibility::Hidden } else { Visibility::Inherited });
+    }
+}
+
 fn tint_text(look: Res<Look>, mut texts: Query<(Ref<Tinted>, &mut TextColor)>) {
     let color = look.color();
     for (t, mut c) in &mut texts {
@@ -358,10 +377,17 @@ fn spawn_panel(mut commands: Commands) {
     commands.spawn((
         Panel,
         Tinted(0.9),
+        backed(20),
         Text::new(""),
         TextFont { font_size: FontSize::Px(13.0), ..default() },
         TextColor::WHITE,
-        Node { position_type: PositionType::Absolute, right: px(24), top: px(52), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            right: px(24),
+            top: px(52),
+            padding: UiRect::axes(px(10), px(6)),
+            ..default()
+        },
     ));
 }
 

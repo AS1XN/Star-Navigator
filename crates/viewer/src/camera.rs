@@ -146,7 +146,7 @@ fn orbit_input(
     }
 }
 
-fn apply_orbit(orbit: Res<Orbit>, mut camera: Single<&mut Transform, With<Camera3d>>) {
+pub fn apply_orbit(orbit: Res<Orbit>, mut camera: Single<&mut Transform, With<Camera3d>>) {
     let rotation = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
     camera.translation = orbit.focus + rotation * Vec3::new(0.0, 0.0, orbit.distance);
     camera.rotation = rotation;

@@ -169,6 +169,8 @@ fn spawn_status(mut commands: Commands) {
         })
         .with_child((
             Status,
+            crate::look::backed(5),
+            Node { padding: UiRect::axes(px(10), px(4)), ..default() },
             Text::new(""),
             TextFont { font_size: FontSize::Px(15.0), ..default() },
             TextColor(HOLO),

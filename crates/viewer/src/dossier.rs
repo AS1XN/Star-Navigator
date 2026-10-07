@@ -7,11 +7,12 @@ use std::f32::consts::{PI, TAU};
 use bevy::prelude::*;
 use catalog::{LY_PER_PC, Star};
 
+use crate::camera::apply_orbit;
 use crate::data::Sky;
-use crate::look::Tinted;
+use crate::look::{Tinted, Tuner};
 use crate::picking::Selection;
 use crate::sky::SkyView;
-use crate::{AppState, HOLO, star_world};
+use crate::{AppState, HOLO, Typing, star_world};
 
 pub struct DossierPlugin;
 
@@ -19,7 +20,9 @@ impl Plugin for DossierPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dossier>().add_systems(Startup, spawn_ui).add_systems(
             Update,
-            (refresh, draw_model, neighbour_tags).chain().run_if(in_state(AppState::Ready)),
+            (refresh, layout_plate, draw_model.after(apply_orbit), neighbour_tags)
+                .chain()
+                .run_if(in_state(AppState::Ready)),
         );
     }
 }
@@ -28,11 +31,45 @@ const NEIGHBOURS: usize = 8;
 /// On-screen radius of the Sol reference circle, in logical pixels.
 const SOL_PX: f32 = 34.0;
 
+const PLATE_LEFT: f32 = 14.0;
+const PLATE_TOP: f32 = 12.0;
+
 #[derive(Resource, Default)]
 struct Dossier {
     star: Option<usize>,
     neighbours: Vec<(usize, f32)>,
     radius: Option<f32>,
+    /// False while the FIND box or tuning panel needs the screen.
+    shown: bool,
+    /// Screen areas (logical px) the plate and model occupy, kept clear of tags.
+    plate_rect: Option<Rect>,
+    model_circle: Option<(Vec2, f32)>,
+}
+
+impl Dossier {
+    fn covers(&self, p: Vec2) -> bool {
+        self.plate_rect.is_some_and(|r| r.inflate(6.0).contains(p))
+            || self.model_circle.is_some_and(|(c, r)| c.distance(p) < r + 12.0)
+    }
+}
+
+/// Hides the plate (and with it the model) while another panel is up, and tracks
+/// where it sits so neighbour tags can stay out of the way.
+fn layout_plate(
+    typing: Res<Typing>,
+    tuner: Res<Tuner>,
+    scale: Res<UiScale>,
+    mut dossier: ResMut<Dossier>,
+    mut plate: Single<(&Text, &ComputedNode, &mut Visibility), With<Plate>>,
+) {
+    let (text, node, vis) = &mut *plate;
+    dossier.shown = dossier.star.is_some() && !typing.0 && !tuner.open;
+    let visible = dossier.shown && !text.0.is_empty();
+    vis.set_if_neq(if visible { Visibility::Inherited } else { Visibility::Hidden });
+    dossier.plate_rect = visible.then(|| {
+        let min = Vec2::new(PLATE_LEFT, PLATE_TOP) * scale.0;
+        Rect::from_corners(min, min + node.size() * node.inverse_scale_factor())
+    });
 }
 
 #[derive(Component)]
@@ -48,7 +85,17 @@ fn spawn_ui(mut commands: Commands) {
         TextFont { font_size: FontSize::Px(14.0), ..default() },
         TextColor(HOLO),
         Tinted(1.0),
-        Node { position_type: PositionType::Absolute, left: px(24), top: px(20), ..default() },
+        BackgroundColor(Color::BLACK.with_alpha(0.6)),
+        // Above the tags and hover readout, below the FIND box and tuning panel.
+        ZIndex(10),
+        Visibility::Hidden,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(PLATE_LEFT),
+            top: px(PLATE_TOP),
+            padding: UiRect::axes(px(10), px(6)),
+            ..default()
+        },
     ));
     // One tag per neighbour plus one for Sol.
     for slot in 0..=NEIGHBOURS {
@@ -181,37 +228,45 @@ fn class_color(star: &Star) -> LinearRgba {
 /// the data plate, so it reads as part of the HUD but gets the hologram treatment.
 #[allow(clippy::too_many_arguments)]
 fn draw_model(
-    dossier: Res<Dossier>,
+    mut dossier: ResMut<Dossier>,
     sky: Res<Sky>,
     view: Res<SkyView>,
     time: Res<Time>,
     scale: Res<UiScale>,
-    camera: Single<(&Camera, &GlobalTransform)>,
-    plate: Single<&ComputedNode, With<Plate>>,
+    camera: Single<(&Camera, &Transform, &Projection)>,
     mut gizmos: Gizmos,
 ) {
-    let Some(index) = dossier.star else { return };
-    let (camera, cam_tf) = *camera;
+    dossier.model_circle = None;
+    let (Some(index), Some(plate)) = (dossier.star, dossier.plate_rect) else { return };
+    let (camera, cam_tf, projection) = *camera;
     let Some(viewport) = camera.logical_viewport_size() else { return };
+    let Projection::Perspective(perspective) = projection else { return };
 
-    let plate_bottom = 20.0 * scale.0 + plate.size().y * plate.inverse_scale_factor();
     let r_px =
         dossier.radius.map_or(SOL_PX, |r| (SOL_PX * r.powf(0.25)).clamp(8.0, 105.0)) * scale.0;
-    let center_px = Vec2::new(
-        24.0 * scale.0 + 110.0 * scale.0,
-        plate_bottom + 30.0 * scale.0 + 105.0 * scale.0,
-    );
-    if center_px.y + r_px > viewport.y - 70.0 * scale.0 {
+    let max_r = 105.0 * scale.0;
+    let center_px =
+        Vec2::new(plate.min.x + 10.0 * scale.0 + max_r, plate.max.y + 24.0 * scale.0 + max_r);
+    if center_px.y + r_px > viewport.y - 60.0 * scale.0 {
         return; // No room on this screen.
     }
+    dossier.model_circle = Some((center_px, r_px));
 
-    // Every point is laid out in screen space and then put a short way in front
-    // of the camera, so the model stays a true circle wherever it sits on screen.
+    // Every point is laid out in screen space and placed a short way in front of
+    // the camera with the camera's own projection, so the model stays a true circle
+    // wherever it sits on screen. (Camera::viewport_to_world goes through the
+    // infinite far plane and loses precision, which made it drift and jitter.)
+    // This runs after the orbit update and uses the camera's current Transform, so
+    // it doesn't lag a frame behind while the view rotates.
     let depth = 0.05;
+    let half_h = (perspective.fov * 0.5).tan() * depth;
+    let half_w = half_h * viewport.x / viewport.y;
     let at = |p: Vec2| -> Option<Vec3> {
-        let ray = camera.viewport_to_world(cam_tf, p).ok()?;
-        Some(ray.origin + *ray.direction * depth)
+        let ndc = Vec2::new(p.x / viewport.x * 2.0 - 1.0, 1.0 - p.y / viewport.y * 2.0);
+        Some(cam_tf.transform_point(Vec3::new(ndc.x * half_w, ndc.y * half_h, -depth)))
     };
+    let cam_forward = cam_tf.forward();
+    let cam_pos = cam_tf.translation;
     let star = &sky.catalog.stars()[index];
     let color = class_color(star) * 1.6;
     let spin = Quat::from_rotation_x(0.4) * Quat::from_rotation_y(time.elapsed_secs() * 0.5);
@@ -261,13 +316,11 @@ fn draw_model(
     }
 
     // Projection lines from the model's rim to the star itself.
-    if let Some(target) = star_world(star, view.unfold) {
-        let to_target = target - cam_tf.translation();
-        if to_target.dot(*cam_tf.forward()) > 0.0 {
-            for dir in [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y] {
-                if let Some(rim) = at(center_px + dir * r_px) {
-                    gizmos.line(rim, target, LinearRgba::from(HOLO) * 0.25);
-                }
+    let ahead = |t: &Vec3| (*t - cam_pos).dot(*cam_forward) > 0.0;
+    if let Some(target) = star_world(star, view.unfold).filter(ahead) {
+        for dir in [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y] {
+            if let Some(rim) = at(center_px + dir * r_px) {
+                gizmos.line(rim, target, LinearRgba::from(HOLO) * 0.25);
             }
         }
     }
@@ -279,11 +332,13 @@ fn neighbour_tags(
     sky: Res<Sky>,
     view: Res<SkyView>,
     scale: Res<UiScale>,
-    camera: Single<(&Camera, &GlobalTransform)>,
+    camera: Single<(&Camera, &Transform)>,
     mut tags: Query<(&NeighbourTag, &mut Text, &mut Node)>,
 ) {
-    let (camera, cam_tf) = *camera;
-    let show = view.unfold > 0.95 && dossier.star.is_some();
+    let (camera, transform) = *camera;
+    // Current-frame camera, matching the model (GlobalTransform lags a frame here).
+    let cam_tf = &GlobalTransform::from(*transform);
+    let show = view.unfold > 0.95 && dossier.shown;
     let stars = sky.catalog.stars();
 
     // Neighbours first; Sol gets the last slot if it isn't already a neighbour.
@@ -305,8 +360,13 @@ fn neighbour_tags(
     for &(i, pc) in entries.iter().filter(|_| show) {
         let pos = if i == 0 { Some(Vec3::ZERO) } else { star_world(&stars[i], view.unfold) };
         let screen = pos.and_then(|p| camera.world_to_viewport(cam_tf, p).ok());
+        // A tag runs about 140 px to the right of its star; keep the whole of it off
+        // the data plate and model.
         let free = screen.filter(|s| {
             taken.iter().all(|t| (s.y - t.y).abs() > 16.0 || (s.x - t.x).abs() > 140.0)
+                && ![0.0, 70.0, 140.0]
+                    .iter()
+                    .any(|dx| dossier.covers(*s + Vec2::new(8.0 + dx, -8.0)))
         });
         placed.push(free.map(|screen| {
             taken.push(screen);

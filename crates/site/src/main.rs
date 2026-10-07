@@ -312,7 +312,20 @@ fn sitemap(urls: &[String]) -> String {
 
 const VIEWER_CSS: &str = r#"<style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  #viewer { display: block; width: 100vw; height: 100vh; outline: none; }
+  #viewer { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+  /* Touch screens get a real text field for FIND, since only a focused input can
+     raise the on-screen keyboard. */
+  #find-btn { position: fixed; left: 12px; bottom: 36px; display: none;
+              font: 600 14px ui-monospace, Consolas, monospace; letter-spacing: 0.1em;
+              color: oklch(85% 0.06 225); background: rgba(0, 0, 0, 0.45);
+              border: 1px solid rgba(255, 255, 255, 0.35); padding: 9px 14px; }
+  @media (pointer: coarse) { #find-btn { display: block; } }
+  #find { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+          width: min(90vw, 460px); box-sizing: border-box; display: none;
+          font: 16px ui-monospace, Consolas, monospace; text-transform: uppercase;
+          color: oklch(88% 0.06 225); background: rgba(0, 0, 0, 0.8);
+          border: 1px solid oklch(75% 0.06 225); padding: 10px 12px; outline: none; }
+  #find.open { display: block; }
   #boot { position: fixed; inset: 0; display: grid; place-items: center;
           color: oklch(85% 0.06 225); letter-spacing: 0.2em; pointer-events: none; }
   .site-nav { position: fixed; top: 16px; right: 20px; font-size: 0.8rem; }
@@ -322,6 +335,37 @@ const VIEWER_CSS: &str = r#"<style>
 const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
 <div id="boot">INITIALIZING STAR CHARTS...</div>
 <nav class="site-nav"><a href="catalog/index.html">CATALOG</a><a href="credits.html">CREDITS</a></nav>
+<button id="find-btn" type="button">FIND</button>
+<input id="find" type="search" enterkeyhint="go" autocomplete="off" autocapitalize="off"
+       spellcheck="false" placeholder="STAR NAME OR CATALOG NO." aria-label="Find a star">
+<script>
+  // The viewer reads data-query / data-submit on the canvas (see search.rs).
+  const canvas = document.getElementById("viewer");
+  const find = document.getElementById("find");
+  document.getElementById("find-btn").addEventListener("click", () => {
+    find.value = "";
+    canvas.dataset.query = "";
+    find.classList.add("open");
+    find.focus();
+  });
+  find.addEventListener("input", () => { canvas.dataset.query = find.value; });
+  find.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      canvas.dataset.submit = String(Date.now());
+      delete canvas.dataset.query;
+      find.classList.remove("open");
+      find.blur();
+    } else if (e.key === "Escape") {
+      find.blur();
+    }
+  });
+  // Leave the results up briefly so a tap on one still lands.
+  find.addEventListener("blur", () => {
+    find.classList.remove("open");
+    setTimeout(() => { delete canvas.dataset.query; }, 400);
+  });
+</script>
 <script type="module">
   import init from "./{pkg}/star-navigator.js";
   const boot = document.getElementById("boot");

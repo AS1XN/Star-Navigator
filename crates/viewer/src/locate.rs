@@ -3,12 +3,14 @@
 //! star, Esc returns to the chart.
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use crate::camera::{Orbit, OrbitGoal, heading_toward};
 use crate::data::Sky;
 use crate::look::Tinted;
 use crate::picking::{Selection, reticle};
 use crate::sky::SkyView;
+use crate::touch::{TouchState, touch_mode};
 use crate::{
     AppState, FIELD_SCALE, HOLO, field_position, globe_position, hotkeys_enabled, star_world,
 };
@@ -19,7 +21,14 @@ impl Plugin for LocatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Locate>().add_systems(Startup, spawn_status).add_systems(
             Update,
-            (locate_input.run_if(hotkeys_enabled), start_locate, animate, draw_field, status_text)
+            (
+                locate_input.run_if(hotkeys_enabled),
+                start_locate,
+                animate,
+                draw_field,
+                status_text,
+                place_status,
+            )
                 .chain()
                 .run_if(in_state(AppState::Ready)),
         );
@@ -56,11 +65,20 @@ pub fn locate_input(
     if keys.just_pressed(KeyCode::KeyL) {
         locate.request = selection.selected;
     }
-    if keys.just_pressed(KeyCode::Escape) && (locate.into_field || locate.note.is_some()) {
-        locate.into_field = false;
-        locate.target = None;
-        locate.note = None;
-        orbit.goal = OrbitGoal::globe();
+    if keys.just_pressed(KeyCode::Escape) {
+        locate.back_to_chart(&mut orbit);
+    }
+}
+
+impl Locate {
+    /// Folds the field back into the globe (Esc or the BACK button).
+    pub fn back_to_chart(&mut self, orbit: &mut Orbit) {
+        if self.into_field || self.note.is_some() {
+            self.into_field = false;
+            self.target = None;
+            self.note = None;
+            orbit.goal = OrbitGoal::globe();
+        }
     }
 }
 
@@ -165,15 +183,21 @@ fn draw_field(
 #[derive(Component)]
 struct Status;
 
+#[derive(Component)]
+struct StatusRow;
+
 fn spawn_status(mut commands: Commands) {
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            width: percent(100),
-            bottom: px(56),
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
+        .spawn((
+            StatusRow,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                bottom: px(56),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
         .with_child((
             Status,
             crate::look::backed(5),
@@ -212,5 +236,20 @@ fn status_text(
     };
     if text.0 != line {
         text.0 = line;
+    }
+}
+
+/// Keeps the lock readout above the touch button bar when that's showing.
+fn place_status(
+    touch: Res<TouchState>,
+    scale: Res<UiScale>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut row: Single<&mut Node, With<StatusRow>>,
+) {
+    // The bar sits 48 units up and its buttons keep a fixed real size (see touch.rs).
+    let bottom =
+        if touch_mode(&touch, &window) { px(48.0 + 52.0 / scale.0.max(0.1)) } else { px(56) };
+    if row.bottom != bottom {
+        row.bottom = bottom;
     }
 }

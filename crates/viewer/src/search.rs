@@ -1,9 +1,15 @@
-//! The FIND prompt: `/` or Enter opens it, typing filters the catalog, Up/Down pick
-//! a result, Enter locates it, Esc closes.
+//! The FIND prompt: `/` or Enter opens it, typing filters the catalog, Up/Down or the
+//! pointer pick a result, Enter or a tap/click locates it, Esc closes.
+//!
+//! On touch screens in the browser the canvas can't raise the on-screen keyboard,
+//! so the page has a real text field (see the site generator). It mirrors its text
+//! into the canvas's `data-query` attribute and signals Enter through `data-submit`;
+//! `web_bridge` picks those up here.
 
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use catalog::Hit;
 
 use crate::data::Sky;
@@ -17,7 +23,14 @@ impl Plugin for SearchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Search>().add_systems(Startup, spawn_box).add_systems(
             Update,
-            (open_search.run_if(hotkeys_enabled), type_search.after(locate_input), draw_box)
+            (
+                open_search.run_if(hotkeys_enabled),
+                web_bridge,
+                type_search.after(locate_input),
+                pick_row,
+                close_web,
+                draw_box,
+            )
                 .chain()
                 .run_if(in_state(AppState::Ready)),
         );
@@ -27,35 +40,87 @@ impl Plugin for SearchPlugin {
 const MAX_RESULTS: usize = 8;
 
 #[derive(Resource, Default)]
-struct Search {
+pub struct Search {
     query: String,
     results: Vec<Hit>,
     cursor: usize,
     /// The key that opened the box arrives as text the same frame; skip it.
     just_opened: bool,
+    /// Opened from the page's text field rather than the keyboard.
+    from_web: bool,
+    last_submit: Option<String>,
+}
+
+/// Opens an empty FIND box (the `/` key or the FIND button).
+pub fn open_box(search: &mut Search, typing: &mut Typing) {
+    typing.0 = true;
+    *search = Search { just_opened: true, last_submit: search.last_submit.take(), ..default() };
+}
+
+impl Search {
+    fn set_query(&mut self, query: String, sky: &Sky) {
+        if query != self.query {
+            self.results = sky.catalog.search(&query, MAX_RESULTS);
+            self.query = query;
+            self.cursor = 0;
+        }
+    }
 }
 
 #[derive(Component)]
-struct SearchBox;
+struct Outer;
+#[derive(Component)]
+struct Panel;
+#[derive(Component)]
+struct Header;
+#[derive(Component)]
+struct Footer;
+#[derive(Component)]
+struct ResultRow(usize);
 
 fn spawn_box(mut commands: Commands) {
+    let text = |size: f32| {
+        (Text::new(""), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(HOLO))
+    };
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            width: percent(100),
-            top: px(20),
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
-        .with_child((
-            SearchBox,
-            crate::look::backed(20),
-            Node { padding: UiRect::axes(px(10), px(6)), ..default() },
-            Text::new(""),
-            TextFont { font_size: FontSize::Px(15.0), ..default() },
-            TextColor(HOLO),
-            Tinted(1.0),
-        ));
+        .spawn((
+            Outer,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                top: px(20),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_children(|outer| {
+            outer
+                .spawn((
+                    Panel,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::axes(px(10), px(6)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::BLACK.with_alpha(0.6)),
+                    ZIndex(20),
+                    Visibility::Hidden,
+                ))
+                .with_children(|panel| {
+                    panel.spawn((Header, text(15.0), Tinted(1.0)));
+                    for i in 0..MAX_RESULTS {
+                        panel
+                            .spawn((
+                                ResultRow(i),
+                                Button,
+                                Node { padding: UiRect::axes(px(2), px(2)), ..default() },
+                                BackgroundColor(Color::NONE),
+                            ))
+                            .with_child((text(15.0), Tinted(1.0)));
+                    }
+                    panel.spawn((Footer, text(13.0), Tinted(0.7)));
+                });
+        });
 }
 
 fn open_search(
@@ -64,8 +129,7 @@ fn open_search(
     mut search: ResMut<Search>,
 ) {
     if keys.just_pressed(KeyCode::Slash) || keys.just_pressed(KeyCode::Enter) {
-        typing.0 = true;
-        *search = Search { just_opened: true, ..default() };
+        open_box(&mut search, &mut typing);
     }
 }
 
@@ -76,11 +140,11 @@ fn type_search(
     mut locate: ResMut<Locate>,
     sky: Res<Sky>,
 ) {
-    if !typing.0 || std::mem::take(&mut search.just_opened) {
+    if !typing.0 || search.from_web || std::mem::take(&mut search.just_opened) {
         keys_in.clear();
         return;
     }
-    let before = search.query.clone();
+    let mut query = search.query.clone();
     for ev in keys_in.read() {
         if ev.state != ButtonState::Pressed {
             continue;
@@ -94,7 +158,7 @@ fn type_search(
                 typing.0 = false;
             }
             Key::Backspace => {
-                search.query.pop();
+                query.pop();
             }
             Key::ArrowDown => {
                 search.cursor = (search.cursor + 1).min(search.results.len().saturating_sub(1));
@@ -103,44 +167,166 @@ fn type_search(
             _ => {
                 if let Some(text) = &ev.text {
                     let text: String = text.chars().filter(|c| !c.is_control()).collect();
-                    if search.query.len() + text.len() <= 40 {
-                        search.query.push_str(&text);
+                    if query.len() + text.len() <= 40 {
+                        query.push_str(&text);
                     }
                 }
             }
         }
     }
-    if search.query != before {
-        search.results = sky.catalog.search(&search.query, MAX_RESULTS);
-        search.cursor = 0;
+    search.set_query(query, &sky);
+}
+
+/// Pointer or finger on a result row: hover highlights it, a press locates it.
+fn pick_row(
+    rows: Query<(&Interaction, &ResultRow), Changed<Interaction>>,
+    mut typing: ResMut<Typing>,
+    mut search: ResMut<Search>,
+    mut locate: ResMut<Locate>,
+) {
+    if !typing.0 {
+        return;
+    }
+    for (interaction, row) in &rows {
+        let Some(hit) = search.results.get(row.0) else { continue };
+        match interaction {
+            Interaction::Pressed => {
+                locate.request = Some(hit.index);
+                typing.0 = false;
+            }
+            Interaction::Hovered => search.cursor = row.0,
+            Interaction::None => {}
+        }
     }
 }
 
+type RowParts<'a> = (&'a ResultRow, &'a Children, &'a mut Node, &'a mut BackgroundColor);
+
+#[allow(clippy::too_many_arguments)]
 fn draw_box(
     typing: Res<Typing>,
     search: Res<Search>,
     sky: Res<Sky>,
     time: Res<Time>,
-    mut text: Single<&mut Text, With<SearchBox>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut outer: Single<&mut Node, (With<Outer>, Without<ResultRow>)>,
+    mut panel: Single<&mut Visibility, (With<Panel>, Without<ResultRow>)>,
+    mut header: Single<&mut Text, (With<Header>, Without<Footer>)>,
+    mut footer: Single<&mut Text, (With<Footer>, Without<Header>)>,
+    mut rows: Query<RowParts>,
+    mut row_text: Query<&mut Text, (Without<Header>, Without<Footer>)>,
 ) {
+    panel.set_if_neq(if typing.0 { Visibility::Inherited } else { Visibility::Hidden });
     if !typing.0 {
-        if !text.0.is_empty() {
-            text.0.clear();
+        return;
+    }
+    // The page's own text field sits at the top while it's in use.
+    let top = px(if search.from_web { 72.0 } else { 20.0 });
+    if outer.top != top {
+        outer.top = top;
+    }
+    let narrow = window.width() < 600.0;
+    let caret = if time.elapsed_secs().fract() < 0.5 { "_" } else { " " };
+    header.0 = format!("FIND > {}{caret}", search.query.to_uppercase());
+
+    for (row, children, mut node, mut bg) in &mut rows {
+        let hit = search.results.get(row.0);
+        // Unused rows take no space.
+        let display = if hit.is_some() { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
+        let Some(hit) = hit else { continue };
+        let star = &sky.catalog.stars()[hit.index];
+        let selected = row.0 == search.cursor;
+        let marker = if selected { ">" } else { " " };
+        let dist =
+            star.dist_ly().map(|ly| format!("{ly:>8.1} LY")).unwrap_or_else(|| "    -- LY".into());
+        // Phones get a narrower row without the magnitude column.
+        let line = if narrow {
+            let label: String = hit.label.to_uppercase().chars().take(22).collect();
+            format!("{marker} {label:<22} {dist}")
+        } else {
+            let label: String = hit.label.to_uppercase().chars().take(34).collect();
+            format!("{marker} {label:<34} {:+6.2} {dist}", star.mag)
+        };
+        let text = children.first().and_then(|c| row_text.get_mut(*c).ok());
+        if let Some(mut text) = text.filter(|t| t.0 != line) {
+            text.0 = line;
+        }
+        bg.0 = if selected { HOLO.with_alpha(0.12) } else { Color::NONE };
+    }
+
+    footer.0 = if search.results.is_empty() && !search.query.trim().is_empty() {
+        "NO MATCH IN CATALOG".into()
+    } else {
+        if narrow {
+            "TAP A STAR TO LOCATE".into()
+        } else {
+            "ENTER OR TAP TO LOCATE   UP/DN SELECT   ESC CANCEL".into()
+        }
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+fn canvas() -> Option<web_sys::Element> {
+    web_sys::window()?.document()?.get_element_by_id("viewer")
+}
+
+/// Mirrors the page's FIND text field (touch screens) into the search box.
+#[cfg(target_arch = "wasm32")]
+fn web_bridge(
+    mut search: ResMut<Search>,
+    mut typing: ResMut<Typing>,
+    mut locate: ResMut<Locate>,
+    sky: Res<Sky>,
+) {
+    let Some(canvas) = canvas() else { return };
+    let submit = canvas.get_attribute("data-submit");
+    if submit.is_some() && submit != search.last_submit {
+        search.last_submit = submit;
+        if search.from_web {
+            if let Some(hit) = search.results.get(search.cursor) {
+                locate.request = Some(hit.index);
+            }
+            typing.0 = false;
         }
         return;
     }
-    let caret = if time.elapsed_secs().fract() < 0.5 { "_" } else { " " };
-    let mut lines = vec![format!("FIND > {}{caret}", search.query.to_uppercase())];
-    for (i, hit) in search.results.iter().enumerate() {
-        let star = &sky.catalog.stars()[hit.index];
-        let marker = if i == search.cursor { ">" } else { " " };
-        let dist =
-            star.dist_ly().map(|ly| format!("{ly:>8.1} LY")).unwrap_or_else(|| "    -- LY".into());
-        lines.push(format!("{marker} {:<34} {:+6.2} {dist}", hit.label.to_uppercase(), star.mag));
+    match canvas.get_attribute("data-query") {
+        Some(query) => {
+            if !search.from_web {
+                open_box(&mut search, &mut typing);
+                search.from_web = true;
+            }
+            search.set_query(query, &sky);
+        }
+        None if search.from_web => typing.0 = false,
+        None => {}
     }
-    if search.results.is_empty() && !search.query.trim().is_empty() {
-        lines.push("  NO MATCH IN CATALOG".into());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn web_bridge() {}
+
+/// Once the box closes, put the page's text field away too.
+fn close_web(typing: Res<Typing>, mut search: ResMut<Search>) {
+    if typing.0 || !search.from_web {
+        return;
     }
-    lines.push("ENTER LOCATE   UP/DN SELECT   ESC CANCEL".into());
-    text.0 = lines.join("\n");
+    search.from_web = false;
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+        if let Some(canvas) = canvas() {
+            let _ = canvas.remove_attribute("data-query");
+        }
+        let field = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("find"))
+            .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok());
+        if let Some(field) = field {
+            let _ = field.blur();
+        }
+    }
 }

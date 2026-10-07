@@ -8,6 +8,7 @@ mod look;
 mod picking;
 mod search;
 mod sky;
+mod touch;
 
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
@@ -101,6 +102,7 @@ fn main() {
             locate::LocatePlugin,
             dossier::DossierPlugin,
             deeplink::DeepLinkPlugin,
+            touch::TouchPlugin,
         ))
         .run();
 }

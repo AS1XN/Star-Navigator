@@ -7,6 +7,7 @@ use crate::data::{LoadError, Sky};
 use crate::look::Tinted;
 use crate::picking::Selection;
 use crate::sky::SkyView;
+use crate::touch::{TouchState, touch_mode};
 use crate::{AppState, HOLO};
 
 pub struct HudPlugin;
@@ -34,15 +35,21 @@ struct HoverTag;
 #[derive(Component)]
 struct Help;
 
-/// Shrinks the HUD on narrow (phone) screens; the key help is hidden there since it
-/// would collide with the status line.
+/// Shrinks the HUD on narrow (phone) screens. The key help gives way to the touch
+/// button bar on touch screens and narrow windows.
 fn fit_to_window(
-    window: Single<&Window, (With<PrimaryWindow>, Changed<Window>)>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    touch: Res<TouchState>,
     mut help: Single<&mut Visibility, With<Help>>,
     mut scale: ResMut<UiScale>,
 ) {
-    **help = if window.width() < 760.0 { Visibility::Hidden } else { Visibility::Inherited };
-    scale.0 = (window.width() / 1100.0).clamp(0.45, 1.0);
+    let hidden = touch_mode(&touch, &window);
+    help.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+    // Shrink a little for narrow windows, but not below a readable size on phones.
+    let s = (window.width() / 1100.0).clamp(0.75, 1.0);
+    if scale.0 != s {
+        scale.0 = s;
+    }
 }
 
 fn font(size: f32) -> TextFont {

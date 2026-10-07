@@ -96,38 +96,58 @@ fn spin_toggle(keys: Res<ButtonInput<KeyCode>>, mut orbit: ResMut<Orbit>) {
     }
 }
 
+impl Orbit {
+    /// Turns the view by a drag of `delta` screen pixels (mouse or finger).
+    pub fn rotate_by(&mut self, delta: Vec2) {
+        // Scale rotation with zoom so close-up drags don't overshoot.
+        let speed = 0.004 * (self.distance / GLOBE_DIST).clamp(0.3, 1.5);
+        self.yaw -= delta.x * speed;
+        self.pitch = (self.pitch - delta.y * speed).clamp(-1.5, 1.5);
+        self.drag_px += delta.length();
+        self.goal.heading = None;
+        self.idle = 0.0;
+    }
+
+    /// Multiplies the target distance by `factor` (below 1 zooms in).
+    pub fn zoom_by(&mut self, factor: f32) {
+        let g = &mut self.goal;
+        g.distance = (g.distance * factor).clamp(g.min_distance, g.max_distance);
+        self.idle = 0.0;
+    }
+}
+
+/// True while the pointer or a finger is over a HUD button, so presses there don't
+/// also drag the view or pick a star.
+pub fn over_ui(ui: &Query<&Interaction>) -> bool {
+    ui.iter().any(|i| *i != Interaction::None)
+}
+
 fn orbit_input(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    ui: Query<&Interaction>,
+    mut drag_from_ui: Local<bool>,
     mut orbit: ResMut<Orbit>,
 ) {
     let dt = time.delta_secs();
     if buttons.just_pressed(MouseButton::Left) {
         orbit.drag_px = 0.0;
+        *drag_from_ui = over_ui(&ui);
     }
-    let mut active = false;
-    if buttons.pressed(MouseButton::Left) && motion.delta != Vec2::ZERO {
-        // Scale rotation with zoom so close-up drags don't overshoot.
-        let speed = 0.004 * (orbit.distance / GLOBE_DIST).clamp(0.3, 1.5);
-        orbit.yaw -= motion.delta.x * speed;
-        orbit.pitch = (orbit.pitch - motion.delta.y * speed).clamp(-1.5, 1.5);
-        orbit.drag_px += motion.delta.length();
-        orbit.goal.heading = None;
-        active = true;
+    if buttons.pressed(MouseButton::Left) && motion.delta != Vec2::ZERO && !*drag_from_ui {
+        orbit.rotate_by(motion.delta);
     }
     if scroll.delta.y != 0.0 {
         let step = match scroll.unit {
             MouseScrollUnit::Line => scroll.delta.y * 0.12,
             MouseScrollUnit::Pixel => scroll.delta.y * 0.0015,
         };
-        let g = &mut orbit.goal;
-        g.distance = (g.distance * (1.0 - step)).clamp(g.min_distance, g.max_distance);
-        active = true;
+        orbit.zoom_by(1.0 - step);
     }
 
-    orbit.idle = if active { 0.0 } else { orbit.idle + dt };
+    orbit.idle += dt;
     if orbit.auto_spin && orbit.idle > IDLE_SPIN_DELAY && orbit.goal.heading.is_none() {
         let ramp = ((orbit.idle - IDLE_SPIN_DELAY) / 2.0).min(1.0);
         orbit.yaw += 0.04 * ramp * dt;

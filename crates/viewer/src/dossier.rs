@@ -5,6 +5,7 @@
 use std::f32::consts::{PI, TAU};
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use catalog::{LY_PER_PC, Star};
 
 use crate::camera::apply_orbit;
@@ -41,6 +42,7 @@ struct Dossier {
     radius: Option<f32>,
     /// False while the FIND box or tuning panel needs the screen.
     shown: bool,
+    compact: bool,
     /// Screen areas (logical px) the plate and model occupy, kept clear of tags.
     plate_rect: Option<Rect>,
     model_circle: Option<(Vec2, f32)>,
@@ -109,26 +111,51 @@ fn spawn_ui(mut commands: Commands) {
     }
 }
 
+/// Below this width (logical px) the plate shows only the essentials and the model
+/// is left out, so a phone screen isn't covered in text.
+const COMPACT_WIDTH: f32 = 700.0;
+
 fn refresh(
     selection: Res<Selection>,
     sky: Res<Sky>,
+    window: Single<&Window, With<PrimaryWindow>>,
     mut dossier: ResMut<Dossier>,
     mut plate: Single<&mut Text, With<Plate>>,
 ) {
-    if dossier.star == selection.selected {
+    let compact = window.width() < COMPACT_WIDTH;
+    if dossier.star == selection.selected && dossier.compact == compact {
         return;
     }
-    dossier.star = selection.selected;
-    let Some(index) = selection.selected else {
-        dossier.neighbours.clear();
-        dossier.radius = None;
-        plate.0.clear();
-        return;
+    if dossier.star != selection.selected {
+        dossier.star = selection.selected;
+        if let Some(index) = selection.selected {
+            dossier.neighbours = sky.catalog.nearest(index, NEIGHBOURS);
+            dossier.radius = sky.catalog.stars()[index].luminosity_and_radius().map(|(_, r)| r);
+        } else {
+            dossier.neighbours.clear();
+            dossier.radius = None;
+        }
+    }
+    dossier.compact = compact;
+    plate.0 = match selection.selected {
+        Some(index) if compact => describe_compact(&sky.catalog.stars()[index]),
+        Some(index) => describe(&sky.catalog.stars()[index], &dossier.neighbours, &sky),
+        None => String::new(),
     };
-    let star = &sky.catalog.stars()[index];
-    dossier.neighbours = sky.catalog.nearest(index, NEIGHBOURS);
-    dossier.radius = star.luminosity_and_radius().map(|(_, r)| r);
-    plate.0 = describe(star, &dossier.neighbours, &sky);
+}
+
+fn describe_compact(s: &Star) -> String {
+    let mut lines = vec![format!("> {}", s.display_name().to_uppercase())];
+    if let Some(sp) = s.spectral_type() {
+        lines.push(format!("{}  {}", s.spectral, sp.description()));
+    }
+    if let Some(ly) = s.dist_ly() {
+        lines.push(format!("{} LY FROM SOL", ly_text(ly, 1)));
+    }
+    if let Some((l, r)) = s.luminosity_and_radius() {
+        lines.push(format!("{} x SOL BRIGHT  /  {} x SOL WIDE", sig(l), sig(r)));
+    }
+    lines.join("\n")
 }
 
 fn describe(s: &Star, neighbours: &[(usize, f32)], sky: &Sky) -> String {
@@ -236,6 +263,9 @@ fn draw_model(
     mut gizmos: Gizmos,
 ) {
     dossier.model_circle = None;
+    if dossier.compact {
+        return;
+    }
     let (Some(index), Some(plate)) = (dossier.star, dossier.plate_rect) else { return };
     let (camera, cam_tf, projection) = *camera;
     let Some(viewport) = camera.logical_viewport_size() else { return };

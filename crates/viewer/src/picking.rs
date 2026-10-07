@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::camera::Orbit;
+use crate::camera::{Orbit, over_ui};
 use crate::data::Sky;
 use crate::sky::SkyView;
 use crate::{AppState, HOLO, field_position, globe_position, star_world};
@@ -36,9 +36,11 @@ struct Target {
 
 /// Every star's globe and field positions, brightest first.
 #[derive(Resource)]
-struct Targets(Vec<Target>);
+pub struct Targets(Vec<Target>);
 
 const PICK_RADIUS_PX: f32 = 14.0;
+/// Fingers are less precise than a mouse pointer.
+pub const TAP_RADIUS_PX: f32 = 28.0;
 
 fn build_targets(mut commands: Commands, sky: Res<Sky>) {
     let targets = sky
@@ -57,25 +59,18 @@ fn build_targets(mut commands: Commands, sky: Res<Sky>) {
     commands.insert_resource(Targets(targets));
 }
 
-fn hover(
-    window: Single<&Window, With<PrimaryWindow>>,
-    camera: Single<(&Camera, &GlobalTransform)>,
-    targets: Res<Targets>,
-    view: Res<SkyView>,
-    buttons: Res<ButtonInput<MouseButton>>,
-    mut selection: ResMut<Selection>,
-) {
-    let Some(cursor) = window.cursor_position() else {
-        selection.hovered = None;
-        return;
-    };
-    if buttons.pressed(MouseButton::Left) {
-        return;
-    }
-    let (camera, cam_tf) = *camera;
+/// The star nearest to `point` (logical px) within the pick radius, preferring
+/// bright stars when several are close.
+pub fn pick_at(
+    point: Vec2,
+    camera: &Camera,
+    cam_tf: &GlobalTransform,
+    targets: &Targets,
+    view: &SkyView,
+    radius_px: f32,
+) -> Option<usize> {
     let eye = cam_tf.translation();
     let on_globe = view.unfold < 0.5;
-
     let mut best: Option<(usize, f32)> = None;
     // Targets are sorted by magnitude, so stop at the display limit.
     for t in targets.0.iter().take_while(|t| t.mag <= view.mag_limit) {
@@ -89,21 +84,51 @@ fn hover(
             continue;
         }
         let Ok(screen) = camera.world_to_viewport(cam_tf, pos) else { continue };
-        let d = screen.distance(cursor);
-        if d > PICK_RADIUS_PX {
+        let d = screen.distance(point);
+        if d > radius_px {
             continue;
         }
-        // Prefer bright stars when several are under the cursor.
         let score = d + t.mag * 1.5;
         if best.is_none_or(|(_, s)| score < s) {
             best = Some((t.index, score));
         }
     }
-    selection.hovered = best.map(|(i, _)| i);
+    best.map(|(i, _)| i)
 }
 
-fn click(buttons: Res<ButtonInput<MouseButton>>, orbit: Res<Orbit>, mut sel: ResMut<Selection>) {
-    if buttons.just_released(MouseButton::Left) && orbit.drag_px < 4.0 {
+fn hover(
+    window: Single<&Window, With<PrimaryWindow>>,
+    camera: Single<(&Camera, &GlobalTransform)>,
+    targets: Res<Targets>,
+    view: Res<SkyView>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    ui: Query<&Interaction>,
+    mut selection: ResMut<Selection>,
+) {
+    let Some(cursor) = window.cursor_position().filter(|_| !over_ui(&ui)) else {
+        selection.hovered = None;
+        return;
+    };
+    if buttons.pressed(MouseButton::Left) {
+        return;
+    }
+    let (camera, cam_tf) = *camera;
+    selection.hovered = pick_at(cursor, camera, cam_tf, &targets, &view, PICK_RADIUS_PX);
+}
+
+fn click(
+    buttons: Res<ButtonInput<MouseButton>>,
+    orbit: Res<Orbit>,
+    ui: Query<&Interaction>,
+    mut pressed_on_ui: Local<bool>,
+    mut sel: ResMut<Selection>,
+) {
+    // A press that began on a HUD button (which may be gone by the release) isn't a
+    // click on the sky.
+    if buttons.just_pressed(MouseButton::Left) {
+        *pressed_on_ui = over_ui(&ui);
+    }
+    if buttons.just_released(MouseButton::Left) && orbit.drag_px < 4.0 && !*pressed_on_ui {
         sel.selected = sel.hovered;
     }
 }

@@ -1,6 +1,7 @@
 //! Touch screens: one finger rotates, two fingers pinch to zoom, a quick tap selects
-//! a star. Also the on-screen button bar that stands in for keyboard shortcuts on
-//! touch and narrow screens.
+//! a star. Also the on-screen controls that stand in for keyboard shortcuts on touch
+//! screens and narrow windows: a slim bottom row (FIND, LOCATE, BACK, MENU), a MENU
+//! list with every display toggle, and a strip for the calibration panel.
 
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
@@ -8,7 +9,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::camera::{Orbit, apply_orbit, over_ui};
 use crate::locate::Locate;
-use crate::look::{Look, PALETTES, Tinted};
+use crate::look::{Look, PALETTES, Tinted, TintedBorder, Tuner};
 use crate::picking::{Selection, TAP_RADIUS_PX, Targets, pick_at};
 use crate::search::{Search, open_box};
 use crate::sky::{MAG_MAX, MAG_MIN, SkyView};
@@ -19,10 +20,14 @@ pub struct TouchPlugin;
 impl Plugin for TouchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TouchState>()
-            .add_systems(Startup, spawn_bar)
+            .init_resource::<Menu>()
+            .add_systems(Startup, spawn_controls)
             .add_systems(
                 Update,
-                (gestures.before(apply_orbit), show_bar, size_buttons, press_buttons),
+                (
+                    gestures.before(apply_orbit),
+                    (show_controls, size_buttons, press_buttons, menu_labels, place_menu).chain(),
+                ),
             )
             .add_systems(Update, taps.run_if(in_state(AppState::Ready)));
     }
@@ -119,88 +124,158 @@ enum Action {
     Find,
     Locate,
     Back,
+    Menu,
     Fainter,
     Brighter,
+    Grid,
+    Figures,
+    Spin,
     Palette,
+    Raw,
+    Calibrate,
+    CalPrev,
+    CalNext,
+    CalLess,
+    CalMore,
+    CalClose,
 }
 
-#[derive(Component)]
-struct Bar;
+/// Whether the MENU list is open.
+#[derive(Resource, Default)]
+pub struct Menu {
+    pub open: bool,
+}
 
-fn spawn_bar(mut commands: Commands) {
-    let mut actions = vec![
-        (Action::Locate, "LOCATE"),
-        (Action::Back, "BACK"),
-        (Action::Brighter, "MAG -"),
-        (Action::Fainter, "MAG +"),
-        (Action::Palette, "PALETTE"),
-    ];
-    // In the browser the page has its own FIND button, which can raise the
-    // on-screen keyboard; the canvas can't.
-    if !cfg!(target_arch = "wasm32") {
-        actions.insert(0, (Action::Find, "FIND"));
-    }
+/// The bottom row.
+#[derive(Component)]
+pub struct Bar;
+#[derive(Component)]
+struct MenuPanel;
+#[derive(Component)]
+struct CalStrip;
+
+/// Bottom offset of the controls in logical px; the row sits just above the
+/// status line.
+const BAR_BOTTOM: f32 = 36.0;
+/// Width the page's own FIND button needs at the left of the bar (web only).
+const PAGE_FIND_ROOM: f32 = 84.0;
+
+/// Thin palette-coloured outline over a faint dark backing, like a terminal key.
+fn button(action: Action, label: &str) -> impl Bundle {
+    (
+        action,
+        Button,
+        Node { border: UiRect::all(px(1)), ..default() },
+        BorderColor::all(HOLO.with_alpha(0.5)),
+        TintedBorder(0.5),
+        BackgroundColor(Color::BLACK.with_alpha(0.35)),
+        children![(
+            Text::new(label),
+            TextFont { font_size: FontSize::Px(13.0), ..default() },
+            TextColor(HOLO),
+            Tinted(1.0),
+        )],
+    )
+}
+
+fn spawn_controls(mut commands: Commands) {
+    let row = || Node {
+        position_type: PositionType::Absolute,
+        right: px(12),
+        bottom: px(BAR_BOTTOM),
+        column_gap: px(6),
+        justify_content: JustifyContent::FlexEnd,
+        ..default()
+    };
+
+    // In the browser the page has its own FIND button (only a real text field can
+    // raise the on-screen keyboard); the row leaves room for it on the left.
+    commands.spawn((Bar, row(), Visibility::Hidden)).with_children(|b| {
+        if !cfg!(target_arch = "wasm32") {
+            b.spawn(button(Action::Find, "FIND"));
+        }
+        b.spawn(button(Action::Locate, "LOCATE"));
+        b.spawn(button(Action::Back, "BACK"));
+        b.spawn(button(Action::Menu, "MENU"));
+    });
+
     commands
         .spawn((
-            Bar,
-            // Full width (a definite width lets the rows wrap and size correctly),
-            // right-aligned, sitting above the status line.
+            MenuPanel,
             Node {
                 position_type: PositionType::Absolute,
-                left: px(12),
                 right: px(12),
-                bottom: px(48),
-                column_gap: px(6),
-                flex_wrap: FlexWrap::Wrap,
-                justify_content: JustifyContent::FlexEnd,
-                align_content: AlignContent::FlexEnd,
+                bottom: px(BAR_BOTTOM + 44.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(4),
+                padding: UiRect::all(px(6)),
                 ..default()
             },
+            // Nearly opaque: nothing behind the list should show through its text.
+            BackgroundColor(Color::BLACK.with_alpha(0.9)),
+            ZIndex(15),
             Visibility::Hidden,
         ))
-        .with_children(|bar| {
-            for (action, label) in actions {
-                bar.spawn((
-                    action,
-                    Button,
-                    Node {
-                        padding: UiRect::axes(px(12), px(8)),
-                        margin: UiRect::top(px(6)),
-                        border: UiRect::all(px(1)),
-                        ..default()
-                    },
-                    BorderColor::all(Color::WHITE.with_alpha(0.35)),
-                    BackgroundColor(Color::BLACK.with_alpha(0.45)),
-                ))
-                .with_child((
-                    Text::new(label),
-                    TextFont { font_size: FontSize::Px(14.0), ..default() },
-                    TextColor(HOLO),
-                    Tinted(1.0),
-                ));
+        .with_children(|m| {
+            for action in [
+                Action::Grid,
+                Action::Figures,
+                Action::Spin,
+                Action::Fainter,
+                Action::Brighter,
+                Action::Palette,
+                Action::Raw,
+                Action::Calibrate,
+            ] {
+                m.spawn(button(action, ""));
             }
         });
+
+    commands.spawn((CalStrip, row(), Visibility::Hidden)).with_children(|s| {
+        s.spawn(button(Action::CalPrev, "< PREV"));
+        s.spawn(button(Action::CalNext, "NEXT >"));
+        s.spawn(button(Action::CalLess, " - "));
+        s.spawn(button(Action::CalMore, " + "));
+        s.spawn(button(Action::CalClose, "CLOSE"));
+    });
 }
 
-/// The bar replaces the keyboard help on touch screens and narrow windows.
+/// Touch controls replace the keyboard help on touch screens and narrow windows.
 pub fn touch_mode(state: &TouchState, window: &Window) -> bool {
     state.used || window.width() < 760.0
 }
 
-fn show_bar(
+type Panels<'a> = (Has<Bar>, Has<MenuPanel>, Has<CalStrip>, &'a mut Visibility);
+type AnyPanel = Or<(With<Bar>, With<MenuPanel>, With<CalStrip>)>;
+
+fn show_controls(
     state: Res<TouchState>,
+    tuner: Res<Tuner>,
+    mut menu: ResMut<Menu>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut bar: Single<&mut Visibility, With<Bar>>,
+    mut panels: Query<Panels, AnyPanel>,
 ) {
-    let vis = if touch_mode(&state, &window) { Visibility::Inherited } else { Visibility::Hidden };
-    bar.set_if_neq(vis);
+    let on = touch_mode(&state, &window);
+    // The calibration strip takes over the bottom while the panel is open.
+    let calibrating = on && tuner.open;
+    if (!on || calibrating) && menu.open {
+        menu.open = false;
+    }
+    for (bar, menu_panel, strip, mut vis) in &mut panels {
+        let shown =
+            (bar && on && !calibrating) || (menu_panel && menu.open) || (strip && calibrating);
+        vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+    }
 }
 
-/// The rest of the HUD shrinks with the window, but buttons are for fingers, so
-/// they keep the same real size (about 15 px text, 40 px tall) on any screen.
+type Rows<'a> = (&'a mut Node, Has<Bar>);
+type RowFilter = (Or<(With<Bar>, With<CalStrip>)>, Without<Action>);
+
+/// The HUD shrinks with narrow windows, but buttons are for fingers, so they keep
+/// the same real size on any screen (sizes here are logical px divided by UiScale).
 fn size_buttons(
     scale: Res<UiScale>,
-    mut bar: Single<&mut Node, (With<Bar>, Without<Action>)>,
+    mut rows: Query<Rows, RowFilter>,
     mut buttons: Query<(&mut Node, &Children), With<Action>>,
     mut fonts: Query<&mut TextFont>,
 ) {
@@ -208,15 +283,84 @@ fn size_buttons(
         return;
     }
     let s = scale.0.max(0.1);
-    // In the browser the page's own FIND button sits at the left end of the bottom
-    // row (about 100 px wide), so leave it room.
-    bar.left = px(if cfg!(target_arch = "wasm32") { 104.0 / s } else { 12.0 });
+    for (mut node, is_bar) in &mut rows {
+        node.right = px(12.0 / s);
+        node.bottom = px(BAR_BOTTOM / s);
+        node.column_gap = px(6.0 / s);
+        // Leave room for the page's FIND button at the left of the bar.
+        node.left = if is_bar && cfg!(target_arch = "wasm32") {
+            px((12.0 + PAGE_FIND_ROOM) / s)
+        } else {
+            Val::Auto
+        };
+    }
     for (mut node, children) in &mut buttons {
-        node.padding = UiRect::axes(px(11.0 / s), px(8.0 / s));
-        node.margin = UiRect::top(px(6.0 / s));
+        node.padding = UiRect::axes(px(10.0 / s), px(7.0 / s));
         for child in children {
             if let Ok(mut font) = fonts.get_mut(*child) {
-                font.font_size = FontSize::Px(14.0 / s);
+                font.font_size = FontSize::Px(13.0 / s);
+            }
+        }
+    }
+}
+
+/// Top edge of the bottom controls in logical px, for things that must sit above
+/// them (the MENU list, the lock readout).
+pub fn controls_top(bar: &ComputedNode) -> f32 {
+    BAR_BOTTOM + bar.size().y * bar.inverse_scale_factor()
+}
+
+/// Keeps the MENU list just above the bottom row, whatever its real height.
+fn place_menu(
+    scale: Res<UiScale>,
+    bar: Single<&ComputedNode, With<Bar>>,
+    mut panel: Single<&mut Node, (With<MenuPanel>, Without<Action>)>,
+) {
+    let s = scale.0.max(0.1);
+    let bottom = px((controls_top(&bar) + 8.0) / s);
+    if panel.bottom != bottom {
+        panel.bottom = bottom;
+        panel.right = px(12.0 / s);
+        panel.padding = UiRect::all(px(6.0 / s));
+        panel.row_gap = px(4.0 / s);
+    }
+}
+
+fn on_off(on: bool) -> String {
+    if on { "ON".into() } else { "OFF".into() }
+}
+
+/// Menu rows show their current state, terminal style: "GRID ........ ON".
+fn menu_labels(
+    menu: Res<Menu>,
+    view: Res<SkyView>,
+    orbit: Res<Orbit>,
+    look: Res<Look>,
+    rows: Query<(&Action, &Children)>,
+    mut texts: Query<&mut Text>,
+) {
+    if !menu.open {
+        return;
+    }
+    for (action, children) in &rows {
+        let (name, value) = match action {
+            Action::Grid => ("GRID", on_off(view.grid)),
+            Action::Figures => ("FIGURES", on_off(view.figures)),
+            Action::Spin => ("SPIN", on_off(orbit.auto_spin)),
+            Action::Fainter => ("MORE STARS", format!("MAG {:.1}", view.mag_limit)),
+            Action::Brighter => ("FEWER STARS", format!("MAG {:.1}", view.mag_limit)),
+            Action::Palette => ("PALETTE", PALETTES[look.palette].label.to_string()),
+            Action::Raw => ("RAW VIEW", on_off(look.bypassed())),
+            Action::Calibrate => ("CALIBRATE", ">".into()),
+            _ => continue,
+        };
+        let dots = ".".repeat(30usize.saturating_sub(name.len() + value.len()));
+        let line = format!("{name} {dots} {value}");
+        for child in children {
+            if let Ok(mut text) = texts.get_mut(*child)
+                && text.0 != line
+            {
+                text.0 = line.clone();
             }
         }
     }
@@ -226,6 +370,8 @@ fn size_buttons(
 fn press_buttons(
     buttons: Query<(&Interaction, &Action, &mut BackgroundColor), Changed<Interaction>>,
     selection: Res<Selection>,
+    mut menu: ResMut<Menu>,
+    mut tuner: ResMut<Tuner>,
     mut typing: ResMut<Typing>,
     mut search: ResMut<Search>,
     mut locate: ResMut<Locate>,
@@ -237,7 +383,7 @@ fn press_buttons(
         bg.0 = match interaction {
             Interaction::Pressed => HOLO.with_alpha(0.3),
             Interaction::Hovered => HOLO.with_alpha(0.12),
-            Interaction::None => Color::BLACK.with_alpha(0.45),
+            Interaction::None => Color::BLACK.with_alpha(0.35),
         };
         if *interaction != Interaction::Pressed {
             continue;
@@ -246,9 +392,23 @@ fn press_buttons(
             Action::Find => open_box(&mut search, &mut typing),
             Action::Locate => locate.request = selection.selected,
             Action::Back => locate.back_to_chart(&mut orbit),
+            Action::Menu => menu.open = !menu.open,
             Action::Fainter => view.mag_limit = (view.mag_limit + 0.5).min(MAG_MAX),
             Action::Brighter => view.mag_limit = (view.mag_limit - 0.5).max(MAG_MIN),
-            Action::Palette => look.palette = (look.palette + 1) % PALETTES.len(),
+            Action::Grid => view.grid = !view.grid,
+            Action::Figures => view.figures = !view.figures,
+            Action::Spin => orbit.auto_spin = !orbit.auto_spin,
+            Action::Palette => look.next_palette(),
+            Action::Raw => look.toggle_bypass(),
+            Action::Calibrate => {
+                tuner.open = true;
+                menu.open = false;
+            }
+            Action::CalPrev => tuner.select(-1),
+            Action::CalNext => tuner.select(1),
+            Action::CalLess => tuner.adjust(&mut look, -1.0),
+            Action::CalMore => tuner.adjust(&mut look, 1.0),
+            Action::CalClose => tuner.open = false,
         }
     }
 }

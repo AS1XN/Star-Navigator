@@ -227,43 +227,65 @@ fn apply_preset(mut tuner: ResMut<Tuner>, files: Res<Assets<BinaryFile>>, mut lo
     }
 }
 
+impl Tuner {
+    /// Moves the panel cursor up (negative) or down (positive), wrapping.
+    pub fn select(&mut self, step: i32) {
+        let n = PARAMS.len() as i32;
+        self.cursor = (self.cursor as i32 + step).rem_euclid(n) as usize;
+    }
+
+    /// Nudges the selected setting by `steps` of its step size.
+    pub fn adjust(&self, look: &mut Look, steps: f32) {
+        let param = &PARAMS[self.cursor];
+        let v = &mut look.values[self.cursor];
+        *v = (*v + param.step * steps).clamp(param.min, param.max);
+    }
+}
+
+impl Look {
+    pub fn next_palette(&mut self) {
+        self.palette = (self.palette + 1) % PALETTES.len();
+    }
+
+    pub fn bypassed(&self) -> bool {
+        self.bypass
+    }
+
+    pub fn toggle_bypass(&mut self) {
+        self.bypass = !self.bypass;
+    }
+}
+
 fn tune_input(keys: Res<ButtonInput<KeyCode>>, mut tuner: ResMut<Tuner>, mut look: ResMut<Look>) {
     if keys.just_pressed(KeyCode::KeyT) {
         tuner.open = !tuner.open;
         tuner.message.clear();
     }
     if keys.just_pressed(KeyCode::KeyP) {
-        look.palette = (look.palette + 1) % PALETTES.len();
+        look.next_palette();
     }
     if keys.just_pressed(KeyCode::KeyH) {
-        look.bypass = !look.bypass;
+        look.toggle_bypass();
     }
     if !tuner.open {
         return;
     }
-    let n = PARAMS.len();
     if keys.just_pressed(KeyCode::ArrowDown) {
-        tuner.cursor = (tuner.cursor + 1) % n;
+        tuner.select(1);
     }
     if keys.just_pressed(KeyCode::ArrowUp) {
-        tuner.cursor = (tuner.cursor + n - 1) % n;
+        tuner.select(-1);
     }
     let fast = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
         5.0
     } else {
         1.0
     };
-    let param = &PARAMS[tuner.cursor];
-    let mut delta = 0.0;
     if keys.just_pressed(KeyCode::ArrowRight) {
-        delta = param.step * fast;
+        tuner.adjust(&mut look, fast);
     }
     if keys.just_pressed(KeyCode::ArrowLeft) {
-        delta = -param.step * fast;
-    }
-    if delta != 0.0 {
-        let v = &mut look.values[tuner.cursor];
-        *v = (*v + delta).clamp(param.min, param.max);
+        tuner.adjust(&mut look, -fast);
     }
     if keys.just_pressed(KeyCode::KeyR) {
         *look = Look { palette: look.palette, ..default() };
@@ -361,14 +383,53 @@ fn show_backed(mut blocks: Query<BackedText, (With<Backed>, Changed<Text>)>) {
     }
 }
 
-fn tint_text(look: Res<Look>, mut texts: Query<(Ref<Tinted>, &mut TextColor)>) {
+/// Outline drawn in the palette color with the given alpha (touch buttons).
+#[derive(Component)]
+pub struct TintedBorder(pub f32);
+
+fn tint_text(
+    look: Res<Look>,
+    mut texts: Query<(Ref<Tinted>, &mut TextColor)>,
+    mut borders: Query<(Ref<TintedBorder>, &mut BorderColor)>,
+) {
     let color = look.color();
     for (t, mut c) in &mut texts {
         if look.is_changed() || t.is_added() {
             c.0 = color.with_alpha(t.0);
         }
     }
+    for (t, mut b) in &mut borders {
+        if look.is_changed() || t.is_added() {
+            *b = BorderColor::all(color.with_alpha(t.0));
+        }
+    }
+    if look.is_changed() {
+        share_palette_with_page(color);
+    }
 }
+
+/// The page's own FIND button (touch screens) reads `--holo` to match the palette.
+#[cfg(target_arch = "wasm32")]
+fn share_palette_with_page(color: Color) {
+    use wasm_bindgen::JsCast;
+    let c = color.to_srgba();
+    let hex = format!(
+        "#{:02x}{:02x}{:02x}",
+        (c.red * 255.0) as u8,
+        (c.green * 255.0) as u8,
+        (c.blue * 255.0) as u8
+    );
+    let root = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.document_element())
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok());
+    if let Some(root) = root {
+        let _ = root.style().set_property("--holo", &hex);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn share_palette_with_page(_color: Color) {}
 
 #[derive(Component)]
 struct Panel;
@@ -391,8 +452,15 @@ fn spawn_panel(mut commands: Commands) {
     ));
 }
 
-fn draw_panel(tuner: Res<Tuner>, look: Res<Look>, mut panel: Single<&mut Text, With<Panel>>) {
-    if !tuner.is_changed() && !look.is_changed() {
+fn draw_panel(
+    tuner: Res<Tuner>,
+    look: Res<Look>,
+    touch: Res<crate::touch::TouchState>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut panel: Single<&mut Text, With<Panel>>,
+) {
+    let touch_mode = crate::touch::touch_mode(&touch, &window);
+    if !tuner.is_changed() && !look.is_changed() && !touch.is_changed() {
         return;
     }
     if !tuner.open {
@@ -412,8 +480,12 @@ fn draw_panel(tuner: Res<Tuner>, look: Res<Look>, mut panel: Single<&mut Text, W
         lines.push(format!("{marker} {:<15} {bar} {v:>6.2}", param.label));
     }
     lines.push(String::new());
-    lines.push("UP/DN SELECT  LT/RT ADJUST  SHIFT x5".into());
-    lines.push("R RESET  S SAVE  T CLOSE".into());
+    if touch_mode {
+        lines.push("PREV / NEXT SELECT   - / + ADJUST".into());
+    } else {
+        lines.push("UP/DN SELECT  LT/RT ADJUST  SHIFT x5".into());
+        lines.push("R RESET  S SAVE  T CLOSE".into());
+    }
     if !tuner.message.is_empty() {
         lines.push(format!("> {}", tuner.message));
     }

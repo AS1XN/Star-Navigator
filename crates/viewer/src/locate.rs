@@ -10,7 +10,7 @@ use crate::data::Sky;
 use crate::look::Tinted;
 use crate::picking::{Selection, reticle};
 use crate::sky::SkyView;
-use crate::touch::{TouchState, touch_mode};
+use crate::touch::{Bar, Menu, TouchState, controls_top, touch_mode};
 use crate::{
     AppState, FIELD_SCALE, HOLO, field_position, globe_position, hotkeys_enabled, star_world,
 };
@@ -244,12 +244,22 @@ fn place_status(
     touch: Res<TouchState>,
     scale: Res<UiScale>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut row: Single<&mut Node, With<StatusRow>>,
+    menu: Res<Menu>,
+    bar: Single<&ComputedNode, With<Bar>>,
+    mut row: Single<&mut Node, (With<StatusRow>, Without<Bar>)>,
 ) {
-    // The bar sits 48 units up and its buttons keep a fixed real size (see touch.rs).
-    let bottom =
-        if touch_mode(&touch, &window) { px(48.0 + 52.0 / scale.0.max(0.1)) } else { px(56) };
+    // Measured from the bar's real height, so it clears the controls on any screen.
+    let bottom = if touch_mode(&touch, &window) {
+        px((controls_top(&bar) + 10.0) / scale.0.max(0.1))
+    } else {
+        px(56)
+    };
     if row.bottom != bottom {
         row.bottom = bottom;
+    }
+    // The MENU list opens over this spot; step aside until it closes.
+    let display = if menu.open { Display::None } else { Display::Flex };
+    if row.display != display {
+        row.display = display;
     }
 }

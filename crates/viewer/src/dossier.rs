@@ -412,11 +412,21 @@ fn neighbour_tags(
     for (tag, mut text, mut node) in &mut tags {
         match placed.get(tag.0).cloned().flatten() {
             Some((screen, label)) => {
+                // Rough text width (12 px monospace) decides whether the tag fits to
+                // the right of its star; near the right edge it goes on the left.
+                let width = label.chars().count() as f32 * 7.2 * scale.0;
+                let screen_w = camera.logical_viewport_size().map_or(f32::MAX, |v| v.x);
+                if screen.x + 8.0 + width > screen_w - 4.0 {
+                    node.left = Val::Auto;
+                    node.right = px((screen_w - screen.x + 8.0) / scale.0);
+                } else {
+                    node.left = px((screen.x + 8.0) / scale.0);
+                    node.right = Val::Auto;
+                }
+                node.top = px((screen.y - 16.0) / scale.0);
                 if text.0 != label {
                     text.0 = label;
                 }
-                node.left = px((screen.x + 8.0) / scale.0);
-                node.top = px((screen.y - 16.0) / scale.0);
             }
             None if !text.0.is_empty() => text.0.clear(),
             None => {}

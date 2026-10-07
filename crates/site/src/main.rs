@@ -315,16 +315,20 @@ const VIEWER_CSS: &str = r#"<style>
   #viewer { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
   /* Touch screens get a real text field for FIND, since only a focused input can
      raise the on-screen keyboard. */
+  /* Styled like the viewer's own touch buttons; --holo is set by the viewer to the
+     current palette colour. */
   #find-btn { position: fixed; left: 12px; bottom: 36px; display: none;
-              font: 600 14px ui-monospace, Consolas, monospace; letter-spacing: 0.1em;
-              color: oklch(85% 0.06 225); background: rgba(0, 0, 0, 0.45);
-              border: 1px solid rgba(255, 255, 255, 0.35); padding: 9px 14px; }
+              font: 13px/1.2 ui-monospace, Consolas, monospace; color: var(--holo, #b8dbff);
+              background: rgba(0, 0, 0, 0.35); padding: 7px 10px; border-radius: 0;
+              border: 1px solid color-mix(in srgb, var(--holo, #b8dbff) 50%, transparent); }
+  #find-btn:active { background: color-mix(in srgb, var(--holo, #b8dbff) 30%, transparent); }
   @media (pointer: coarse) { #find-btn { display: block; } }
   #find { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
           width: min(90vw, 460px); box-sizing: border-box; display: none;
           font: 16px ui-monospace, Consolas, monospace; text-transform: uppercase;
-          color: oklch(88% 0.06 225); background: rgba(0, 0, 0, 0.8);
-          border: 1px solid oklch(75% 0.06 225); padding: 10px 12px; outline: none; }
+          color: var(--holo, #b8dbff); background: rgba(0, 0, 0, 0.8);
+          border: 1px solid color-mix(in srgb, var(--holo, #b8dbff) 60%, transparent);
+          padding: 10px 12px; outline: none; border-radius: 0; }
   #find.open { display: block; }
   #boot { position: fixed; inset: 0; display: grid; place-items: center;
           color: oklch(85% 0.06 225); letter-spacing: 0.2em; pointer-events: none; }

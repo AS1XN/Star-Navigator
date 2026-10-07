@@ -369,7 +369,24 @@ const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
 <script type="module">
   import init from "./{pkg}/star-navigator.js";
   const boot = document.getElementById("boot");
-  init().catch((e) => {
+  // GitHub Pages serves .wasm uncompressed, so fetch the gzipped copy (about a
+  // quarter of the size) and unpack it here. Falls back to the plain file.
+  async function wasmBytes() {
+    try {
+      if (!("DecompressionStream" in window)) return undefined;
+      const res = await fetch("./{pkg}/star-navigator_bg.wasm.gz");
+      if (!res.ok) return undefined;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      // Already decoded by the server (Content-Encoding)? Then it's plain wasm.
+      if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+      const plain = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return new Uint8Array(await new Response(plain).arrayBuffer());
+    } catch (e) {
+      console.warn("compressed wasm unavailable, using the plain file", e);
+      return undefined;
+    }
+  }
+  init({ module_or_path: await wasmBytes() }).catch((e) => {
     // Bevy exits its init via an exception on the web; only real failures matter.
     if (!String(e).includes("Using exceptions for control flow")) {
       boot.textContent = "SIGNAL LOST: " + e;

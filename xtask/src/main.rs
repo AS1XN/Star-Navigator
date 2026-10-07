@@ -82,9 +82,16 @@ fn web() -> Result {
 
     let bg = dist.join("pkg").join("star-navigator_bg.wasm");
     let before = fs::metadata(&bg)?.len();
-    let wasm = strip_custom_sections(&fs::read(&bg)?)?;
-    fs::write(&bg, &wasm)?;
-    eprintln!("stripped wasm: {} -> {} KB", before / 1024, wasm.len() / 1024);
+    fs::write(&bg, strip_custom_sections(&fs::read(&bg)?)?)?;
+    optimize_wasm(&bg);
+    let wasm = fs::read(&bg)?;
+    eprintln!("wasm: {} -> {} KB", before / 1024, wasm.len() / 1024);
+
+    // GitHub Pages serves .wasm and binary assets uncompressed, so ship gzipped
+    // copies ourselves; the page and the asset loader unpack them.
+    let gz = gzip(&wasm)?;
+    fs::write(bg.with_extension("wasm.gz"), &gz)?;
+    eprintln!("wasm.gz: {} KB", gz.len() / 1024);
 
     // Name the folder after the build's contents. GitHub Pages lets browsers cache
     // files for 10 minutes, so a fixed `pkg/` path could pair a fresh page with
@@ -101,7 +108,42 @@ fn web() -> Result {
     if assets.exists() {
         copy_dir(&assets, &dist.join("assets"))?;
     }
+    // The catalog is the other big download. The viewer's loader recognises gzip,
+    // so the web copy can be compressed in place under the same name.
+    for name in ["stars.bin", "constellations.bin"] {
+        let path = dist.join("assets/catalog").join(name);
+        let raw = fs::read(&path)?;
+        let gz = gzip(&raw)?;
+        fs::write(&path, &gz)?;
+        eprintln!("{name}: {} -> {} KB gzipped", raw.len() / 1024, gz.len() / 1024);
+    }
     Ok(())
+}
+
+fn gzip(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    enc.write_all(bytes)?;
+    enc.finish()
+}
+
+/// Runs binaryen's `wasm-opt -Oz` if it's installed (CI installs it); the build
+/// works without it, just larger.
+fn optimize_wasm(path: &Path) {
+    let features = [
+        "--enable-bulk-memory",
+        "--enable-nontrapping-float-to-int",
+        "--enable-sign-ext",
+        "--enable-mutable-globals",
+        "--enable-reference-types",
+        "--enable-multivalue",
+    ];
+    let status =
+        Command::new("wasm-opt").arg("-Oz").args(features).arg(path).arg("-o").arg(path).status();
+    match status {
+        Ok(s) if s.success() => eprintln!("wasm-opt: done"),
+        Ok(s) => eprintln!("wasm-opt failed ({s}); keeping the unoptimized build"),
+        Err(_) => eprintln!("wasm-opt not found; skipping"),
+    }
 }
 
 /// wasm-bindgen-cli must match the wasm-bindgen crate version exactly.

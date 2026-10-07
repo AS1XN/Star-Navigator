@@ -37,6 +37,12 @@ impl AssetLoader for BinaryLoader {
     ) -> Result<BinaryFile, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
+        // The web build ships these gzipped (GitHub Pages won't compress them).
+        if bytes.starts_with(&[0x1f, 0x8b]) {
+            let mut raw = Vec::new();
+            std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&bytes[..]), &mut raw)?;
+            bytes = raw;
+        }
         Ok(BinaryFile(bytes))
     }
 

@@ -34,6 +34,19 @@ jobs:
           if ! wasm-bindgen --version 2>/dev/null | grep -q "$version"; then
             cargo install wasm-bindgen-cli --version "$version" --locked --force
           fi
+      # Optional: xtask runs wasm-opt when it's on PATH and skips it otherwise.
+      - name: Install binaryen (wasm-opt)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/WebAssembly/binaryen/releases/latest \
+            | grep -o 'https://[^"]*x86_64-linux.tar.gz' | head -1)
+          mkdir -p "$RUNNER_TEMP/binaryen"
+          curl -fsSL "$url" | tar xz -C "$RUNNER_TEMP/binaryen" --strip-components=1
+          echo "$RUNNER_TEMP/binaryen/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/binaryen/bin/wasm-opt" --version
       - run: cargo xtask web
       - uses: actions/upload-pages-artifact@v4
         with:

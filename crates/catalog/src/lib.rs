@@ -50,6 +50,11 @@ impl Star {
         self.hyg == 0
     }
 
+    /// Added at runtime from an online lookup rather than the catalog file.
+    pub fn is_external(&self) -> bool {
+        self.hyg >= EXTERNAL_HYG
+    }
+
     pub fn dist_ly(&self) -> Option<f32> {
         self.dist_pc.map(|d| d * LY_PER_PC)
     }
@@ -62,6 +67,10 @@ impl Star {
     /// (for the absolute magnitude) and a parseable spectral type.
     pub fn luminosity_and_radius(&self) -> Option<(f32, f32)> {
         self.dist_pc?;
+        // Online lookups without a known brightness carry a placeholder magnitude.
+        if self.absmag > 50.0 {
+            return None;
+        }
         let t = self.spectral_type()?.temperature_k();
         let l = physics::luminosity_solar(self.absmag, t);
         Some((l, physics::radius_solar(l, t)))
@@ -150,8 +159,13 @@ pub struct Hit {
     pub exact: bool,
 }
 
+/// HYG ids at or above this mark stars added at runtime (online lookups).
+pub const EXTERNAL_HYG: u32 = 0xF000_0000;
+
 pub struct Catalog {
     stars: Vec<Star>,
+    /// Stars from the catalog file; anything after these was added with `push`.
+    base_len: usize,
     /// Sorted (normalized key, star index) pairs for name/designation lookups.
     keys: Vec<(String, u32)>,
     hip: HashMap<u32, u32>,
@@ -165,47 +179,89 @@ impl Catalog {
     }
 
     pub fn new(stars: Vec<Star>) -> Catalog {
-        let mut keys = Vec::new();
-        let (mut hip, mut hd, mut hr) = (HashMap::new(), HashMap::new(), HashMap::new());
-
+        let mut catalog = Catalog {
+            base_len: stars.len(),
+            stars: Vec::new(),
+            keys: Vec::new(),
+            hip: HashMap::new(),
+            hd: HashMap::new(),
+            hr: HashMap::new(),
+        };
         for (i, s) in stars.iter().enumerate() {
-            let i = i as u32;
-            let con = s.constellation().map(|c| c.abbr.to_lowercase());
-            if let Some(p) = &s.proper {
-                keys.push((normalize(p), i));
-            }
-            if let (Some(b), Some(con)) = (&s.bayer, &con) {
-                let full = normalize(&format!("{b} {con}"));
-                // "Alp-1 Cen" is also reachable as plain "alp cen".
-                if let Some((letter, _)) = b.split_once('-') {
-                    keys.push((normalize(&format!("{letter} {con}")), i));
-                }
-                keys.push((full, i));
-            }
-            if let (Some(f), Some(con)) = (s.flamsteed, &con) {
-                keys.push((format!("{f} {con}"), i));
-            }
-            if let Some(g) = &s.gliese {
-                keys.push((normalize(g), i));
-            }
-            if let Some(n) = s.hip {
-                hip.insert(n, i);
-            }
-            if let Some(n) = s.hd {
-                hd.insert(n, i);
-            }
-            if let Some(n) = s.hr {
-                hr.insert(n, i);
-            }
+            catalog.index(i as u32, s);
         }
-        keys.sort();
-        keys.dedup();
+        catalog.keys.sort();
+        catalog.keys.dedup();
+        catalog.stars = stars;
+        catalog
+    }
 
-        Catalog { stars, keys, hip, hd, hr }
+    /// Adds the star's names and catalog numbers to the lookup tables (unsorted).
+    fn index(&mut self, i: u32, s: &Star) {
+        let con = s.constellation().map(|c| c.abbr.to_lowercase());
+        if let Some(p) = &s.proper {
+            self.keys.push((normalize(p), i));
+        }
+        if let (Some(b), Some(con)) = (&s.bayer, &con) {
+            let full = normalize(&format!("{b} {con}"));
+            // "Alp-1 Cen" is also reachable as plain "alp cen".
+            if let Some((letter, _)) = b.split_once('-') {
+                self.keys.push((normalize(&format!("{letter} {con}")), i));
+            }
+            self.keys.push((full, i));
+        }
+        if let (Some(f), Some(con)) = (s.flamsteed, &con) {
+            self.keys.push((format!("{f} {con}"), i));
+        }
+        if let Some(g) = &s.gliese {
+            self.keys.push((normalize(g), i));
+        }
+        if let Some(n) = s.hip {
+            self.hip.insert(n, i);
+        }
+        if let Some(n) = s.hd {
+            self.hd.insert(n, i);
+        }
+        if let Some(n) = s.hr {
+            self.hr.insert(n, i);
+        }
+    }
+
+    /// Adds a star found at runtime (e.g. an online lookup) and makes it
+    /// searchable. Returns its index. Give it an id from `EXTERNAL_HYG` upward.
+    pub fn push(&mut self, star: Star) -> usize {
+        let i = self.stars.len();
+        self.index(i as u32, &star);
+        self.keys.sort();
+        self.keys.dedup();
+        self.stars.push(star);
+        i
     }
 
     pub fn stars(&self) -> &[Star] {
         &self.stars
+    }
+
+    /// The stars from the catalog file, still sorted brightest first.
+    pub fn base(&self) -> &[Star] {
+        &self.stars[..self.base_len]
+    }
+
+    /// A catalogued star within `max_arcsec` of the given position, if any.
+    pub fn find_near(&self, ra_hours: f32, dec_deg: f32, max_arcsec: f32) -> Option<usize> {
+        let probe = Star { ra: ra_hours, dec: dec_deg, ..self.stars[0].clone() }.direction();
+        let min_dot = (max_arcsec / 3600.0).to_radians().cos();
+        self.base()
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.is_sun())
+            .map(|(i, s)| {
+                let d = s.direction();
+                (i, d[0] * probe[0] + d[1] * probe[1] + d[2] * probe[2])
+            })
+            .filter(|(_, dot)| *dot >= min_dot)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
     }
 
     pub fn len(&self) -> usize {

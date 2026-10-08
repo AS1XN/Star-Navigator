@@ -7,6 +7,7 @@ mod locate;
 mod look;
 mod picking;
 mod search;
+mod simbad;
 mod sky;
 mod touch;
 
@@ -117,6 +118,7 @@ fn main() {
             dossier::DossierPlugin,
             deeplink::DeepLinkPlugin,
             touch::TouchPlugin,
+            simbad::SimbadPlugin,
         ))
         .run();
 }

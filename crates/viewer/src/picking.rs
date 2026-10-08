@@ -34,9 +34,16 @@ struct Target {
     mag: f32,
 }
 
-/// Every star's globe and field positions, brightest first.
+/// Every star's globe and field positions, brightest first, plus stars added from
+/// online lookups (checked regardless of the magnitude limit).
 #[derive(Resource)]
-pub struct Targets(Vec<Target>);
+pub struct Targets(Vec<Target>, Vec<Target>);
+
+impl Targets {
+    pub fn push_external(&mut self, index: usize, globe: Vec3, field: Option<Vec3>, mag: f32) {
+        self.1.push(Target { index, globe, field, mag });
+    }
+}
 
 const PICK_RADIUS_PX: f32 = 14.0;
 /// Fingers are less precise than a mouse pointer.
@@ -56,7 +63,7 @@ fn build_targets(mut commands: Commands, sky: Res<Sky>) {
             mag: s.mag,
         })
         .collect();
-    commands.insert_resource(Targets(targets));
+    commands.insert_resource(Targets(targets, Vec::new()));
 }
 
 /// The star nearest to `point` (logical px) within the pick radius, preferring
@@ -73,7 +80,8 @@ pub fn pick_at(
     let on_globe = view.unfold < 0.5;
     let mut best: Option<(usize, f32)> = None;
     // Targets are sorted by magnitude, so stop at the display limit.
-    for t in targets.0.iter().take_while(|t| t.mag <= view.mag_limit) {
+    let catalogued = targets.0.iter().take_while(|t| t.mag <= view.mag_limit);
+    for t in catalogued.chain(&targets.1) {
         let pos = match (on_globe, t.field) {
             (true, _) => t.globe.lerp(t.field.unwrap_or(t.globe * 12.0), view.unfold),
             (false, Some(f)) => t.globe.lerp(f, view.unfold),

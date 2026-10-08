@@ -157,3 +157,34 @@ fn accented_names() {
     assert_eq!(CATALOG.resolve_slug("belenos"), Some(index));
     assert_eq!(CATALOG.search("belenos", 1)[0].index, index);
 }
+
+#[test]
+fn pushed_stars_are_searchable_and_matched_by_position() {
+    let mut cat = Catalog::from_bytes(
+        &std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/catalog/stars.bin"))
+            .unwrap(),
+    )
+    .unwrap();
+    let base = cat.len();
+    let vega = cat.stars().iter().position(|s| s.proper.as_deref() == Some("Vega")).unwrap();
+    // Vega's position matches Vega; an empty patch of sky matches nothing.
+    let (ra, dec) = (cat.stars()[vega].ra, cat.stars()[vega].dec);
+    assert_eq!(cat.find_near(ra, dec, 30.0), Some(vega));
+    assert_eq!(cat.find_near(ra + 0.05, dec, 30.0), None);
+
+    let trappist = Star {
+        hyg: catalog::EXTERNAL_HYG,
+        proper: Some("TRAPPIST-1".into()),
+        ra: 23.108,
+        dec: -5.041,
+        dist_pc: Some(12.47),
+        mag: 18.8,
+        ..cat.stars()[1].clone()
+    };
+    let i = cat.push(trappist);
+    assert_eq!(i, base);
+    assert!(cat.stars()[i].is_external());
+    assert_eq!(cat.base().len(), base);
+    assert_eq!(cat.search("trappist", 1)[0].index, i);
+    assert_eq!(cat.resolve_slug("trappist-1"), Some(i));
+}

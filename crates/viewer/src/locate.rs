@@ -50,6 +50,11 @@ pub struct Locate {
 }
 
 impl Locate {
+    /// Shows (or clears) a one-line message in the lock readout, e.g. lookup status.
+    pub fn set_note(&mut self, note: Option<String>) {
+        self.note = note;
+    }
+
     /// The star currently being shown by a locate, if any.
     pub fn current(&self) -> Option<usize> {
         self.target.filter(|_| self.into_field || self.note.is_some())

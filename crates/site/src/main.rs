@@ -294,7 +294,14 @@ fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
         .child(Link::new(
             "github.com/ofrohn/d3-celestial",
             "https://github.com/ofrohn/d3-celestial",
-        ));
+        ))
+        .child(Heading::new(2, "Online lookups"))
+        .child(Text::new(
+            "Stars not in the catalog are looked up live. This research has made use of \
+             the SIMBAD database and the Sesame name resolver, operated at CDS, \
+             Strasbourg, France.",
+        ))
+        .child(Link::new("simbad.cds.unistra.fr", "https://simbad.cds.unistra.fr/simbad/"));
     site_page(bundle, "Credits", "Data sources and licenses for Star-Navigator.", "", body)
 }
 

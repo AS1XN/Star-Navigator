@@ -15,6 +15,7 @@ use catalog::Hit;
 use crate::data::Sky;
 use crate::locate::{Locate, locate_input};
 use crate::look::Tinted;
+use crate::simbad::Lookup;
 use crate::{AppState, HOLO, Typing, hotkeys_enabled};
 
 pub struct SearchPlugin;
@@ -38,6 +39,8 @@ impl Plugin for SearchPlugin {
 }
 
 const MAX_RESULTS: usize = 8;
+/// The extra row after the results that sends the query to SIMBAD.
+const SIMBAD_ROW: usize = MAX_RESULTS;
 
 #[derive(Resource, Default)]
 pub struct Search {
@@ -58,6 +61,21 @@ pub fn open_box(search: &mut Search, typing: &mut Typing) {
 }
 
 impl Search {
+    /// Long enough to be worth asking SIMBAD about.
+    fn online_ok(&self) -> bool {
+        self.query.trim().chars().count() >= 2
+    }
+
+    /// Locates the highlighted result, or sends the query to SIMBAD when the
+    /// highlight is on the online row (or there are no results at all).
+    fn choose(&self, locate: &mut Locate, lookup: &mut Lookup) {
+        match self.results.get(self.cursor) {
+            Some(hit) => locate.request = Some(hit.index),
+            None if self.online_ok() => lookup.request(&self.query),
+            None => {}
+        }
+    }
+
     fn set_query(&mut self, query: String, sky: &Sky) {
         if query != self.query {
             self.results = sky.catalog.search(&query, MAX_RESULTS);
@@ -108,7 +126,7 @@ fn spawn_box(mut commands: Commands) {
                 ))
                 .with_children(|panel| {
                     panel.spawn((Header, text(15.0), Tinted(1.0)));
-                    for i in 0..MAX_RESULTS {
+                    for i in 0..=MAX_RESULTS {
                         panel
                             .spawn((
                                 ResultRow(i),
@@ -138,6 +156,7 @@ fn type_search(
     mut typing: ResMut<Typing>,
     mut search: ResMut<Search>,
     mut locate: ResMut<Locate>,
+    mut lookup: ResMut<Lookup>,
     sky: Res<Sky>,
 ) {
     if !typing.0 || search.from_web || std::mem::take(&mut search.just_opened) {
@@ -152,16 +171,20 @@ fn type_search(
         match &ev.logical_key {
             Key::Escape => typing.0 = false,
             Key::Enter => {
-                if let Some(hit) = search.results.get(search.cursor) {
-                    locate.request = Some(hit.index);
-                }
+                search.choose(&mut locate, &mut lookup);
                 typing.0 = false;
             }
             Key::Backspace => {
                 query.pop();
             }
             Key::ArrowDown => {
-                search.cursor = (search.cursor + 1).min(search.results.len().saturating_sub(1));
+                // The online row sits just past the results.
+                let last = if search.online_ok() {
+                    search.results.len()
+                } else {
+                    search.results.len().saturating_sub(1)
+                };
+                search.cursor = (search.cursor + 1).min(last);
             }
             Key::ArrowUp => search.cursor = search.cursor.saturating_sub(1),
             _ => {
@@ -183,18 +206,24 @@ fn pick_row(
     mut typing: ResMut<Typing>,
     mut search: ResMut<Search>,
     mut locate: ResMut<Locate>,
+    mut lookup: ResMut<Lookup>,
 ) {
     if !typing.0 {
         return;
     }
     for (interaction, row) in &rows {
-        let Some(hit) = search.results.get(row.0) else { continue };
+        // The online row's slot is just past the results.
+        let slot = if row.0 == SIMBAD_ROW { search.results.len() } else { row.0 };
+        if row.0 != SIMBAD_ROW && search.results.get(slot).is_none() {
+            continue;
+        }
         match interaction {
             Interaction::Pressed => {
-                locate.request = Some(hit.index);
+                search.cursor = slot;
+                search.choose(&mut locate, &mut lookup);
                 typing.0 = false;
             }
-            Interaction::Hovered => search.cursor = row.0,
+            Interaction::Hovered => search.cursor = slot,
             Interaction::None => {}
         }
     }
@@ -230,25 +259,37 @@ fn draw_box(
     header.0 = format!("FIND > {}{caret}", search.query.to_uppercase());
 
     for (row, children, mut node, mut bg) in &mut rows {
+        let online = row.0 == SIMBAD_ROW;
         let hit = search.results.get(row.0);
         // Unused rows take no space.
-        let display = if hit.is_some() { Display::Flex } else { Display::None };
+        let shown = if online { search.online_ok() } else { hit.is_some() };
+        let display = if shown { Display::Flex } else { Display::None };
         if node.display != display {
             node.display = display;
         }
-        let Some(hit) = hit else { continue };
-        let star = &sky.catalog.stars()[hit.index];
-        let selected = row.0 == search.cursor;
+        if !shown {
+            continue;
+        }
+        let slot = if online { search.results.len() } else { row.0 };
+        let selected = slot == search.cursor;
         let marker = if selected { ">" } else { " " };
-        let dist =
-            star.dist_ly().map(|ly| format!("{ly:>8.1} LY")).unwrap_or_else(|| "    -- LY".into());
-        // Phones get a narrower row without the magnitude column.
-        let line = if narrow {
-            let label: String = hit.label.to_uppercase().chars().take(22).collect();
-            format!("{marker} {label:<22} {dist}")
+        let line = if let (false, Some(hit)) = (online, hit) {
+            let star = &sky.catalog.stars()[hit.index];
+            let dist = star
+                .dist_ly()
+                .map(|ly| format!("{ly:>8.1} LY"))
+                .unwrap_or_else(|| "    -- LY".into());
+            // Phones get a narrower row without the magnitude column.
+            if narrow {
+                let label: String = hit.label.to_uppercase().chars().take(22).collect();
+                format!("{marker} {label:<22} {dist}")
+            } else {
+                let label: String = hit.label.to_uppercase().chars().take(34).collect();
+                format!("{marker} {label:<34} {:+6.2} {dist}", star.mag)
+            }
         } else {
-            let label: String = hit.label.to_uppercase().chars().take(34).collect();
-            format!("{marker} {label:<34} {:+6.2} {dist}", star.mag)
+            let q: String = search.query.trim().to_uppercase().chars().take(20).collect();
+            format!("{marker} QUERY SIMBAD ONLINE: \"{q}\"")
         };
         let text = children.first().and_then(|c| row_text.get_mut(*c).ok());
         if let Some(mut text) = text.filter(|t| t.0 != line) {
@@ -258,7 +299,7 @@ fn draw_box(
     }
 
     footer.0 = if search.results.is_empty() && !search.query.trim().is_empty() {
-        "NO MATCH IN CATALOG".into()
+        "NO MATCH IN CATALOG // ENTER TO ASK SIMBAD".into()
     } else {
         if narrow {
             "TAP A STAR TO LOCATE".into()
@@ -279,6 +320,7 @@ fn web_bridge(
     mut search: ResMut<Search>,
     mut typing: ResMut<Typing>,
     mut locate: ResMut<Locate>,
+    mut lookup: ResMut<Lookup>,
     sky: Res<Sky>,
 ) {
     let Some(canvas) = canvas() else { return };
@@ -286,9 +328,7 @@ fn web_bridge(
     if submit.is_some() && submit != search.last_submit {
         search.last_submit = submit;
         if search.from_web {
-            if let Some(hit) = search.results.get(search.cursor) {
-                locate.request = Some(hit.index);
-            }
+            search.choose(&mut locate, &mut lookup);
             typing.0 = false;
         }
         return;

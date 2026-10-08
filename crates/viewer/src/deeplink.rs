@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use crate::AppState;
 use crate::data::Sky;
 use crate::locate::Locate;
+use crate::simbad::Lookup;
 
 pub struct DeepLinkPlugin;
 
@@ -24,7 +25,12 @@ struct Focus {
     shown: Option<usize>,
 }
 
-fn apply_focus(mut focus: ResMut<Focus>, sky: Res<Sky>, mut locate: ResMut<Locate>) {
+fn apply_focus(
+    mut focus: ResMut<Focus>,
+    sky: Res<Sky>,
+    mut locate: ResMut<Locate>,
+    mut lookup: ResMut<Lookup>,
+) {
     let Some(slug) = focus.requested.take() else { return };
     match sky.catalog.resolve_slug(&slug) {
         Some(index) => {
@@ -32,7 +38,8 @@ fn apply_focus(mut focus: ResMut<Focus>, sky: Res<Sky>, mut locate: ResMut<Locat
             // Already in the address bar; don't rewrite it.
             focus.shown = Some(index);
         }
-        None => warn!("deep link: no star matches {slug:?}"),
+        // Not in the catalog: ask SIMBAD (a link to "trappist-1" still works).
+        None => lookup.request_any(&[&slug, &slug.replace('-', " ")]),
     }
 }
 

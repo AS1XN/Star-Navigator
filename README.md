@@ -9,6 +9,8 @@ Browse the [star catalog](https://as1xn.github.io/Star-Navigator/catalog/) by
 constellation, or link straight to a star:
 [star/vega/](https://as1xn.github.io/Star-Navigator/star/vega/) for named stars, or
 `?star=<name or catalog number>` for anything else (e.g. `?star=hip-71683`).
+Stars that aren't in the catalog are looked up live in SIMBAD (search offers
+"QUERY SIMBAD ONLINE", and links fall back to it, e.g. `?star=trappist-1`).
 Locating a star updates the address bar, so the current view can be shared. On
 desktop, `star-navigator --star vega` does the same.
 

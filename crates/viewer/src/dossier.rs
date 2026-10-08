@@ -180,7 +180,14 @@ fn describe(s: &Star, neighbours: &[(usize, f32)], sky: &Sky) -> String {
         (Some(ly), Some(pc)) => format!("DISTANCE  {ly:.2} LY  ({pc:.2} PC)"),
         _ => "DISTANCE  UNKNOWN".into(),
     });
-    lines.push(format!("MAGNITUDE  {:+.2} APP  /  {:+.2} ABS", s.mag, s.absmag));
+    lines.push(match (s.mag < 50.0, s.absmag < 50.0) {
+        (true, true) => format!("MAGNITUDE  {:+.2} APP  /  {:+.2} ABS", s.mag, s.absmag),
+        (true, false) => format!("MAGNITUDE  {:+.2} APP", s.mag),
+        _ => "MAGNITUDE  UNKNOWN".into(),
+    });
+    if s.is_external() {
+        lines.push("SOURCE  SIMBAD (ONLINE LOOKUP)".into());
+    }
 
     if let Some(sp) = s.spectral_type() {
         lines.push(String::new());

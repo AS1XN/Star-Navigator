@@ -131,7 +131,7 @@ fn status_text(view: Res<SkyView>, sky: Res<Sky>, mut q: Single<&mut Text, With<
     if !view.is_changed() {
         return;
     }
-    let shown = sky.catalog.stars().partition_point(|s| s.mag <= view.mag_limit) - 1;
+    let shown = sky.catalog.base().partition_point(|s| s.mag <= view.mag_limit) - 1;
     q.0 =
         format!("STAR-NAVIGATOR // {} STARS // LIMIT MAG {:.1}", thousands(shown), view.mag_limit);
 }

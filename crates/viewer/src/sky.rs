@@ -10,7 +10,8 @@ use bevy::shader::ShaderRef;
 
 use crate::data::Sky;
 use crate::{
-    AppState, GLOBE_RADIUS, HOLO, field_position, globe_position, hotkeys_enabled, sky_to_world,
+    AppState, CHART_RADIUS, GLOBE_RADIUS, HOLO, chart_position, field_position, globe_position,
+    hotkeys_enabled, sky_to_world,
 };
 
 pub struct SkyPlugin;
@@ -42,11 +43,24 @@ pub struct SkyView {
     pub figures: bool,
     /// 0 = celestial globe, 1 = stars at their true 3D positions around Sol.
     pub unfold: f32,
+    /// 0 = globe, 1 = flat chart (animated toward `chart_on`).
+    pub chart: f32,
+    pub chart_on: bool,
+    /// Chart centred on the south celestial pole instead of the north.
+    pub south: bool,
 }
 
 impl Default for SkyView {
     fn default() -> Self {
-        Self { mag_limit: 6.5, grid: true, figures: true, unfold: 0.0 }
+        Self {
+            mag_limit: 6.5,
+            grid: true,
+            figures: true,
+            unfold: 0.0,
+            chart: 0.0,
+            chart_on: false,
+            south: false,
+        }
     }
 }
 
@@ -67,10 +81,11 @@ pub struct StarSettings {
     pub back_fade: f32,
     pub brightness: f32,
     pub unfold: f32,
+    pub chart: f32,
+    /// +1 for a north-centred chart, -1 for south.
+    pub chart_pole: f32,
     // Uniforms must be a multiple of 16 bytes on WebGL2.
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    _pad: f32,
 }
 
 impl Material for StarMaterial {
@@ -160,9 +175,9 @@ fn spawn_stars(
             back_fade: 0.3,
             brightness: 1.6,
             unfold: 0.0,
-            _pad0: 0.0,
-            _pad1: 0.0,
-            _pad2: 0.0,
+            chart: 0.0,
+            chart_pole: 1.0,
+            _pad: 0.0,
         },
     });
     commands.spawn((
@@ -198,8 +213,11 @@ fn fold_band(
         return;
     }
     let (transform, visibility) = &mut *band;
-    let s = 1.0 - view.unfold;
-    transform.scale = Vec3::new(s, 1.0, s);
+    // Into the field it shrinks into Sol; onto the chart it settles exactly on the
+    // chart's equator ring (half the chart radius).
+    let to_chart = 1.0 + (CHART_RADIUS * 0.5 / GLOBE_RADIUS - 1.0) * view.chart;
+    let s = (1.0 - view.unfold) * to_chart;
+    transform.scale = Vec3::new(s, 1.0 - view.chart * 0.9, s);
     **visibility = if s < 0.01 { Visibility::Hidden } else { Visibility::Inherited };
 }
 
@@ -229,6 +247,8 @@ fn update_material(
     if let Some(mut m) = materials.get_mut(&field.0) {
         m.settings.mag_limit = view.mag_limit;
         m.settings.unfold = view.unfold;
+        m.settings.chart = view.chart;
+        m.settings.chart_pole = if view.south { -1.0 } else { 1.0 };
     }
 }
 
@@ -263,11 +283,13 @@ fn draw_grid(
     camera: Single<&GlobalTransform, With<Camera3d>>,
     mut gizmos: Gizmos,
 ) {
-    if !view.grid || view.unfold > 0.98 {
+    // The chart draws its own grid (see chart.rs).
+    let globe = (1.0 - view.unfold) * (1.0 - view.chart);
+    if !view.grid || globe < 0.02 {
         return;
     }
     let eye = camera.translation().normalize();
-    let color = grid_color(0.22 * (1.0 - view.unfold));
+    let color = grid_color(0.22 * globe);
     for dec in [-60.0, -30.0, 30.0, 60.0] {
         let pts = (0..=96).map(|i| on_sphere(i as f32 * 24.0 / 96.0, dec));
         gizmos.linestrip_gradient(faded(pts, eye, color));
@@ -313,8 +335,24 @@ fn draw_figures(
         return;
     }
     let eye = camera.translation().normalize();
-    let color = grid_color(0.55 * (1.0 - view.unfold));
-    for strip in &figures.0 {
-        gizmos.linestrip_gradient(faded(strip.iter().copied(), eye, color));
+    let globe = (1.0 - view.unfold) * (1.0 - view.chart);
+    if globe > 0.02 {
+        let color = grid_color(0.55 * globe);
+        for strip in &figures.0 {
+            gizmos.linestrip_gradient(faded(strip.iter().copied(), eye, color));
+        }
+    }
+    // The same figures flattened onto the chart. A segment that wraps around the
+    // chart (crossing RA 0h near the rim) is skipped rather than drawn across it.
+    if view.chart > 0.02 {
+        let color: Color = (grid_color(0.55) * view.chart).into();
+        for strip in &figures.0 {
+            let flat: Vec<Vec3> = strip.iter().map(|p| chart_position(*p, view.south)).collect();
+            for pair in flat.windows(2) {
+                if pair[0].distance(pair[1]) < CHART_RADIUS * 0.2 {
+                    gizmos.line(pair[0], pair[1], color);
+                }
+            }
+        }
     }
 }

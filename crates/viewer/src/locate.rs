@@ -91,9 +91,12 @@ fn start_locate(
     mut locate: ResMut<Locate>,
     mut orbit: ResMut<Orbit>,
     mut selection: ResMut<Selection>,
+    mut view: ResMut<SkyView>,
     sky: Res<Sky>,
 ) {
     let Some(index) = locate.request.take() else { return };
+    // Locating always lifts the chart back into the globe first.
+    view.chart_on = false;
     let star = &sky.catalog.stars()[index];
     selection.selected = Some(index);
     locate.target = Some(index);
@@ -148,7 +151,7 @@ fn animate(
     }
     // While the field unfolds the target is still moving, so keep chasing it.
     let chasing = locate.target.filter(|_| locate.into_field);
-    if let Some(pos) = chasing.and_then(|i| star_world(&sky.catalog.stars()[i], view.unfold)) {
+    if let Some(pos) = chasing.and_then(|i| star_world(&sky.catalog.stars()[i], &view)) {
         orbit.goal.focus = pos;
     }
 }
@@ -179,8 +182,7 @@ fn draw_field(
         (holo * 0.8 * a).into(),
         std::f32::consts::FRAC_PI_4,
     );
-    if let Some(pos) = locate.target.and_then(|i| star_world(&sky.catalog.stars()[i], view.unfold))
-    {
+    if let Some(pos) = locate.target.and_then(|i| star_world(&sky.catalog.stars()[i], &view)) {
         gizmos.line(Vec3::ZERO, pos, holo * 0.35 * a);
     }
 }

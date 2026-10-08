@@ -14,9 +14,21 @@ struct StarSettings {
     back_fade: f32,
     brightness: f32,
     unfold: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    chart: f32,
+    chart_pole: f32,
+    _pad: f32,
+}
+
+// Flat chart: must match `chart_position` in main.rs.
+const GLOBE_RADIUS: f32 = 4.0;
+const CHART_RADIUS: f32 = 6.0;
+
+fn chart_position(globe: vec3<f32>, pole: f32) -> vec3<f32> {
+    let g = globe / GLOBE_RADIUS;
+    let dec = asin(clamp(g.y, -1.0, 1.0));
+    let ra = atan2(-g.z, g.x);
+    let r = (1.5707964 - dec * pole) / 3.1415927 * CHART_RADIUS;
+    return vec3(r * cos(ra), 0.0, -r * sin(ra));
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> settings: StarSettings;
@@ -50,7 +62,9 @@ fn vertex(v: Vertex) -> StarOut {
     }
 
     let world_from_local = get_world_from_local(v.instance_index);
-    let world = mesh_position_local_to_world(world_from_local, vec4(mix(v.position, v.field, settings.unfold), 1.0)).xyz;
+    let spatial = mix(v.position, v.field, settings.unfold);
+    let local = mix(spatial, chart_position(v.position, settings.chart_pole), settings.chart);
+    let world = mesh_position_local_to_world(world_from_local, vec4(local, 1.0)).xyz;
     var clip = position_world_to_clip(world);
 
     let size_px = clamp(1.5 + excess * 0.75, 1.5, 9.0) * settings.size_scale;
@@ -62,6 +76,8 @@ fn vertex(v: Vertex) -> StarOut {
     var fade = mix(settings.back_fade, 1.0, smoothstep(-0.15, 0.15, facing));
     // In the 3D field there is no far side; stars without a distance fade out.
     fade = mix(fade, v.params.y, settings.unfold);
+    // The chart is flat: every star faces up.
+    fade = mix(fade, 1.0, settings.chart);
     let intensity = clamp(0.3 + excess * 0.4, 0.3, 4.0) * settings.brightness;
 
     out.corner = v.corner;

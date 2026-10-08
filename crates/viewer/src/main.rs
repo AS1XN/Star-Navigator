@@ -1,4 +1,5 @@
 mod camera;
+mod chart;
 mod data;
 mod deeplink;
 mod dossier;
@@ -44,15 +45,38 @@ pub fn field_position(star: &catalog::Star) -> Option<Vec3> {
     star.position().map(|p| sky_to_world(p) * FIELD_SCALE)
 }
 
-/// Current on-screen position: blends globe and field by the unfold amount.
-/// `None` for stars without a distance once the field has mostly unfolded.
-pub fn star_world(star: &catalog::Star, unfold: f32) -> Option<Vec3> {
-    let globe = globe_position(star);
-    match field_position(star) {
-        Some(f) => Some(globe.lerp(f, unfold)),
-        None if unfold < 0.5 => Some(globe.lerp(globe * 12.0, unfold)),
-        None => None,
+/// Radius of the flat chart (the briefing-table view) in world units.
+pub const CHART_RADIUS: f32 = 6.0;
+
+/// Where a globe position lands on the flat chart: the celestial pole at the
+/// centre, the opposite pole at the rim, declination linear in radius, laid on
+/// the XZ plane. Must match the projection in `stars.wgsl`.
+pub fn chart_position(globe: Vec3, south: bool) -> Vec3 {
+    let g = globe / GLOBE_RADIUS;
+    let pole = if south { -1.0 } else { 1.0 };
+    let dec = g.y.clamp(-1.0, 1.0).asin();
+    let ra = (-g.z).atan2(g.x);
+    let r = (std::f32::consts::FRAC_PI_2 - dec * pole) / std::f32::consts::PI * CHART_RADIUS;
+    Vec3::new(r * ra.cos(), 0.0, -r * ra.sin())
+}
+
+/// Where a star with these globe and field positions is drawn right now, given
+/// how far the view has unfolded into 3D or flattened into the chart. `None` for
+/// stars without a distance once the field has mostly unfolded.
+pub fn view_position(globe: Vec3, field: Option<Vec3>, view: &sky::SkyView) -> Option<Vec3> {
+    let spatial = match field {
+        Some(f) => globe.lerp(f, view.unfold),
+        None if view.unfold < 0.5 => globe.lerp(globe * 12.0, view.unfold),
+        None => return None,
+    };
+    if view.chart <= 0.0 {
+        return Some(spatial);
     }
+    Some(spatial.lerp(chart_position(globe, view.south), view.chart))
+}
+
+pub fn star_world(star: &catalog::Star, view: &sky::SkyView) -> Option<Vec3> {
+    view_position(globe_position(star), field_position(star), view)
 }
 
 /// True while the search box has the keyboard, so single-key shortcuts stay quiet.
@@ -119,6 +143,7 @@ fn main() {
             deeplink::DeepLinkPlugin,
             touch::TouchPlugin,
             simbad::SimbadPlugin,
+            chart::ChartPlugin,
         ))
         .run();
 }

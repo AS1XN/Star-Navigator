@@ -353,7 +353,7 @@ fn draw_model(
 
     // Projection lines from the model's rim to the star itself.
     let ahead = |t: &Vec3| (*t - cam_pos).dot(*cam_forward) > 0.0;
-    if let Some(target) = star_world(star, view.unfold).filter(ahead) {
+    if let Some(target) = star_world(star, &view).filter(ahead) {
         for dir in [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y] {
             if let Some(rim) = at(center_px + dir * r_px) {
                 gizmos.line(rim, target, LinearRgba::from(HOLO) * 0.25);
@@ -388,13 +388,13 @@ fn neighbour_tags(
     // tag (binary companions are often on top of each other).
     let mut taken: Vec<Vec2> = dossier
         .star
-        .and_then(|i| star_world(&stars[i], view.unfold))
+        .and_then(|i| star_world(&stars[i], &view))
         .and_then(|p| camera.world_to_viewport(cam_tf, p).ok())
         .into_iter()
         .collect();
     let mut placed: Vec<Option<(Vec2, String)>> = Vec::new();
     for &(i, pc) in entries.iter().filter(|_| show) {
-        let pos = if i == 0 { Some(Vec3::ZERO) } else { star_world(&stars[i], view.unfold) };
+        let pos = if i == 0 { Some(Vec3::ZERO) } else { star_world(&stars[i], &view) };
         let screen = pos.and_then(|p| camera.world_to_viewport(cam_tf, p).ok());
         // A tag runs about 140 px to the right of its star; keep the whole of it off
         // the data plate and model.

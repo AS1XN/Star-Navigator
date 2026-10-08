@@ -91,7 +91,8 @@ fn spawn_hud(mut commands: Commands) {
             "DRAG ROTATE   WHEEL ZOOM   CLICK SELECT\n\
              [ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN\n\
              P PALETTE   T TUNE LOOK   H RAW VIEW\n\
-             / FIND   L LOCATE SELECTED   ESC BACK",
+             / FIND   L LOCATE SELECTED   ESC BACK\n\
+             V CHART VIEW   N CHART POLE",
         ),
         font(12.0),
         dim(),

@@ -6,7 +6,7 @@ use bevy::window::PrimaryWindow;
 use crate::camera::{Orbit, over_ui};
 use crate::data::Sky;
 use crate::sky::SkyView;
-use crate::{AppState, HOLO, field_position, globe_position, star_world};
+use crate::{AppState, HOLO, field_position, globe_position, star_world, view_position};
 
 pub struct PickingPlugin;
 
@@ -77,16 +77,12 @@ pub fn pick_at(
     radius_px: f32,
 ) -> Option<usize> {
     let eye = cam_tf.translation();
-    let on_globe = view.unfold < 0.5;
+    let on_globe = view.unfold < 0.5 && view.chart < 0.5;
     let mut best: Option<(usize, f32)> = None;
     // Targets are sorted by magnitude, so stop at the display limit.
     let catalogued = targets.0.iter().take_while(|t| t.mag <= view.mag_limit);
     for t in catalogued.chain(&targets.1) {
-        let pos = match (on_globe, t.field) {
-            (true, _) => t.globe.lerp(t.field.unwrap_or(t.globe * 12.0), view.unfold),
-            (false, Some(f)) => t.globe.lerp(f, view.unfold),
-            (false, None) => continue,
-        };
+        let Some(pos) = view_position(t.globe, t.field, view) else { continue };
         // On the globe only the near hemisphere is pickable.
         if on_globe && pos.normalize().dot(eye.normalize()) < 0.05 {
             continue;
@@ -165,13 +161,13 @@ fn draw_reticles(
     let eye = camera.translation();
     let stars = sky.catalog.stars();
     let holo = LinearRgba::from(HOLO);
-    if let Some(pos) = selection.selected.and_then(|i| star_world(&stars[i], view.unfold)) {
+    if let Some(pos) = selection.selected.and_then(|i| star_world(&stars[i], &view)) {
         let pulse = 2.5 + (time.elapsed_secs() * 4.0).sin() * 0.8;
         let color = (holo * pulse).into();
         reticle(&mut gizmos, eye, pos, 0.022, color, time.elapsed_secs() * 0.6);
     }
     let hovered = selection.hovered.filter(|&h| Some(h) != selection.selected);
-    if let Some(pos) = hovered.and_then(|i| star_world(&stars[i], view.unfold)) {
+    if let Some(pos) = hovered.and_then(|i| star_world(&stars[i], &view)) {
         reticle(&mut gizmos, eye, pos, 0.014, (holo * 1.2).into(), 0.0);
     }
 }

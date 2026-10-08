@@ -159,7 +159,7 @@ fn draw_markers(
 ) {
     let eye = camera.translation();
     for &i in &lookup.added {
-        if let Some(pos) = star_world(&sky.catalog.stars()[i], view.unfold) {
+        if let Some(pos) = star_world(&sky.catalog.stars()[i], &view) {
             let color = (LinearRgba::from(HOLO) * 2.0).into();
             reticle(&mut gizmos, eye, pos, 0.006, color, std::f32::consts::FRAC_PI_4);
         }

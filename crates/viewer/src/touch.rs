@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::camera::{Orbit, apply_orbit, over_ui};
+use crate::chart::toggle_chart;
 use crate::locate::Locate;
 use crate::look::{Look, PALETTES, Tinted, TintedBorder, Tuner};
 use crate::picking::{Selection, TAP_RADIUS_PX, Targets, pick_at};
@@ -133,6 +134,8 @@ enum Action {
     Palette,
     Raw,
     Calibrate,
+    View,
+    Pole,
     CalPrev,
     CalNext,
     CalLess,
@@ -218,6 +221,8 @@ fn spawn_controls(mut commands: Commands) {
         ))
         .with_children(|m| {
             for action in [
+                Action::View,
+                Action::Pole,
                 Action::Grid,
                 Action::Figures,
                 Action::Spin,
@@ -352,6 +357,8 @@ fn menu_labels(
             Action::Palette => ("PALETTE", PALETTES[look.palette].label.to_string()),
             Action::Raw => ("RAW VIEW", on_off(look.bypassed())),
             Action::Calibrate => ("CALIBRATE", ">".into()),
+            Action::View => ("VIEW", if view.chart_on { "CHART" } else { "GLOBE" }.into()),
+            Action::Pole => ("CHART CENTER", if view.south { "SOUTH" } else { "NORTH" }.into()),
             _ => continue,
         };
         let dots = ".".repeat(30usize.saturating_sub(name.len() + value.len()));
@@ -400,6 +407,8 @@ fn press_buttons(
             Action::Spin => orbit.auto_spin = !orbit.auto_spin,
             Action::Palette => look.next_palette(),
             Action::Raw => look.toggle_bypass(),
+            Action::View => toggle_chart(&mut view, &mut locate, &mut orbit),
+            Action::Pole => view.south = !view.south,
             Action::Calibrate => {
                 tuner.open = true;
                 menu.open = false;

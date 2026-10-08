@@ -1,15 +1,17 @@
-//! Sound: every effect is synthesised here at startup (no audio files), in the
-//! spirit of old console hardware. Off by default; M or the menu toggles it.
+//! Sound: short effects cut from CC0 Freesound clips (`cargo xtask sfx`, see
+//! xtask/src/sfx.rs for sources), plus a projector hum synthesised at startup.
+//! Off by default; M or the menu toggles it.
 //!
-//! select   short rising two-tone chirp
-//! locate   warbling upward sweep while the globe unfolds
-//! lock     three pips when the target locks
-//! chart    falling sweep as the globe flattens onto the table
-//! click    tiny tick for buttons and toggles
-//! nomatch  low buzz when a lookup finds nothing
-//! hum      quiet looping mains hum with a slow flutter
+//! select    two quick beeps
+//! locate    targeting computer read-out while the view zooms in
+//! lock      "target acquired" beep run
+//! chart_in  scanner sweep as the globe flattens onto the table
+//! chart_out a second sweep when it lifts back up
+//! click     one short beep for buttons and toggles
+//! nomatch   short error tone
+//! hum       soft projector hum with flickering static and crackle, looped
 
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 use bevy::audio::{AudioPlayer, AudioSource, PlaybackSettings, Volume};
 use bevy::prelude::*;
@@ -24,7 +26,7 @@ pub struct SoundPlugin;
 
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SoundOn>().add_systems(Startup, synthesise).add_systems(
+        app.init_resource::<SoundOn>().add_systems(Startup, load).add_systems(
             Update,
             (sound_key.run_if(hotkeys_enabled), hum, cues)
                 .chain()
@@ -44,22 +46,27 @@ struct Sounds {
     select: Handle<AudioSource>,
     locate: Handle<AudioSource>,
     lock: Handle<AudioSource>,
-    chart: Handle<AudioSource>,
+    chart_in: Handle<AudioSource>,
+    chart_out: Handle<AudioSource>,
     click: Handle<AudioSource>,
     nomatch: Handle<AudioSource>,
     hum: Handle<AudioSource>,
 }
 
-fn synthesise(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
-    let mut add = |samples: Vec<f32>| sources.add(AudioSource { bytes: wav(&samples).into() });
+fn load(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut sources: ResMut<Assets<AudioSource>>,
+) {
     commands.insert_resource(Sounds {
-        select: add(chirp()),
-        locate: add(sweep(380.0, 1150.0, 0.9, 9.0)),
-        lock: add(pips(3, 1320.0)),
-        chart: add(sweep(900.0, 260.0, 0.7, 6.0)),
-        click: add(tick()),
-        nomatch: add(buzz()),
-        hum: add(hum_loop()),
+        select: assets.load("sounds/select.wav"),
+        locate: assets.load("sounds/locate.wav"),
+        lock: assets.load("sounds/lock.wav"),
+        chart_in: assets.load("sounds/chart_in.wav"),
+        chart_out: assets.load("sounds/chart_out.wav"),
+        click: assets.load("sounds/click.wav"),
+        nomatch: assets.load("sounds/nomatch.wav"),
+        hum: sources.add(AudioSource { bytes: wav(&hum_loop()).into() }),
     });
 }
 
@@ -89,7 +96,7 @@ fn hum(
         commands.spawn((
             Hum,
             AudioPlayer(sounds.hum.clone()),
-            PlaybackSettings::LOOP.with_volume(Volume::Linear(0.18)),
+            PlaybackSettings::LOOP.with_volume(Volume::Linear(0.1)),
         ));
     }
 }
@@ -130,16 +137,17 @@ fn cues(
     if on.0 {
         if selection.selected != seen.selected && selection.selected.is_some() && located.is_none()
         {
-            play(&sounds.select, 0.5);
+            play(&sounds.select, 0.35);
         }
         if located != seen.located && located.is_some() && locate.note().is_none() {
-            play(&sounds.locate, 0.45);
+            play(&sounds.locate, 0.4);
         }
         if locked != seen.locked && locked.is_some() {
-            play(&sounds.lock, 0.5);
+            play(&sounds.lock, 0.4);
         }
         if view.chart_on != seen.chart_on {
-            play(&sounds.chart, 0.4);
+            let sweep = if view.chart_on { &sounds.chart_in } else { &sounds.chart_out };
+            play(sweep, 0.5);
         }
         if note != seen.note
             && note.as_deref().is_some_and(|n| n.contains("NO OBJECT") || n.contains("UNREACHABLE"))
@@ -158,108 +166,94 @@ fn cues(
         ];
         let pressed = buttons.iter().any(|i| *i == Interaction::Pressed);
         if pressed || toggles.iter().any(|k| keys.just_pressed(*k)) {
-            play(&sounds.click, 0.35);
+            play(&sounds.click, 0.25);
         }
     }
     *seen = Seen { selected: selection.selected, located, locked, chart_on: view.chart_on, note };
 }
 
-/// Attack/decay envelope over `n` samples: quick rise, smooth fall.
-fn envelope(i: usize, n: usize, attack: f32) -> f32 {
-    let t = i as f32 / n as f32;
-    let rise = (t / attack).min(1.0);
-    rise * (1.0 - t).powf(1.5)
-}
+/// Small xorshift generator so the hum is the same on every run.
+struct Rng(u32);
 
-/// A slightly hollow square-ish tone, softer than a pure square.
-fn tone(phase: f32) -> f32 {
-    0.8 * phase.sin() + 0.2 * (3.0 * phase).sin()
+impl Rng {
+    fn unit(&mut self) -> f32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 17;
+        self.0 ^= self.0 << 5;
+        self.0 as f32 / u32::MAX as f32
+    }
+
+    fn noise(&mut self) -> f32 {
+        self.unit() * 2.0 - 1.0
+    }
 }
 
 fn seconds(s: f32) -> usize {
     (s * RATE as f32) as usize
 }
 
-fn chirp() -> Vec<f32> {
-    let n = seconds(0.11);
-    let mut phase = 0.0;
-    (0..n)
-        .map(|i| {
-            let f = if i < n / 2 { 1250.0 } else { 1870.0 };
-            phase += TAU * f / RATE as f32;
-            tone(phase) * envelope(i, n, 0.05) * 0.8
-        })
-        .collect()
+/// Topology-preserving state variable filter; returns (band, high).
+#[derive(Default)]
+struct Svf {
+    ic1: f32,
+    ic2: f32,
 }
 
-/// Frequency sweep from `f0` to `f1` with a `wobble` Hz vibrato.
-fn sweep(f0: f32, f1: f32, secs: f32, wobble: f32) -> Vec<f32> {
-    let n = seconds(secs);
-    let mut phase = 0.0;
-    (0..n)
-        .map(|i| {
-            let t = i as f32 / n as f32;
-            let f = f0 * (f1 / f0).powf(t) * (1.0 + 0.04 * (TAU * wobble * t * secs).sin());
-            phase += TAU * f / RATE as f32;
-            tone(phase) * envelope(i, n, 0.08) * 0.7
-        })
-        .collect()
-}
-
-fn pips(count: usize, freq: f32) -> Vec<f32> {
-    let (on, off) = (seconds(0.065), seconds(0.055));
-    let mut out = Vec::with_capacity(count * (on + off));
-    for _ in 0..count {
-        out.extend((0..on).map(|i| {
-            let phase = TAU * freq * i as f32 / RATE as f32;
-            tone(phase) * envelope(i, on, 0.08) * 0.8
-        }));
-        out.extend(std::iter::repeat_n(0.0, off));
+impl Svf {
+    fn run(&mut self, x: f32, cutoff: f32, q: f32) -> (f32, f32) {
+        let g = (PI * cutoff / RATE as f32).tan();
+        let k = 1.0 / q;
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let a2 = g * a1;
+        let a3 = g * a2;
+        let v3 = x - self.ic2;
+        let v1 = a1 * self.ic1 + a2 * v3;
+        let v2 = self.ic2 + a2 * self.ic1 + a3 * v3;
+        self.ic1 = 2.0 * v1 - self.ic1;
+        self.ic2 = 2.0 * v2 - self.ic2;
+        (v1, x - k * v1 - v2)
     }
-    out
 }
 
-fn tick() -> Vec<f32> {
-    let n = seconds(0.03);
-    (0..n)
-        .map(|i| {
-            let phase = TAU * 2300.0 * i as f32 / RATE as f32;
-            phase.sin() * envelope(i, n, 0.02) * 0.6
-        })
-        .collect()
-}
-
-fn buzz() -> Vec<f32> {
-    let n = seconds(0.32);
-    (0..n)
-        .map(|i| {
-            let phase = TAU * 140.0 * i as f32 / RATE as f32;
-            // A clipped, rough low tone.
-            let s = (phase.sin() * 3.0).clamp(-1.0, 1.0) * 0.5 + (2.0 * phase).sin() * 0.2;
-            s * envelope(i, n, 0.03) * 0.7
-        })
-        .collect()
-}
-
-/// Four seconds of mains hum: 60 Hz plus harmonics, a slow flutter and a little
-/// hiss. Every component completes whole cycles so the loop is seamless.
+/// Six seconds of hologram projector: a soft 60 Hz hum, static that flickers
+/// in and out, and sparse crackles. The tail is crossfaded into the head so
+/// the loop has no seam.
 fn hum_loop() -> Vec<f32> {
-    let n = seconds(4.0);
-    let mut noise = 0x1234_5678u32;
-    (0..n)
+    let (n, overlap) = (seconds(6.0), seconds(0.5));
+    let mut rng = Rng(0x5747_A125);
+    let (mut hiss_bp, mut crackle_hp) = (Svf::default(), Svf::default());
+    let mut crackle = 0.0f32;
+    let mut flicker = 0.5f32;
+    let raw: Vec<f32> = (0..n + overlap)
         .map(|i| {
             let t = i as f32 / RATE as f32;
-            let base = (TAU * 60.0 * t).sin() * 0.5
-                + (TAU * 120.0 * t).sin() * 0.25
-                + (TAU * 180.0 * t).sin() * 0.12;
-            let flutter = 0.85 + 0.15 * (TAU * 0.5 * t).sin();
-            noise ^= noise << 13;
-            noise ^= noise >> 17;
-            noise ^= noise << 5;
-            let hiss = (noise as f32 / u32::MAX as f32 - 0.5) * 0.04;
-            (base * flutter + hiss) * 0.6
+            let phase = TAU * 60.0 * t;
+            let hum = phase.sin() * 0.45
+                + (2.0 * phase).sin() * 0.22
+                + (3.0 * phase).sin() * 0.1
+                + (5.0 * phase).sin() * 0.04;
+            // Flicker drifts randomly and now and then nearly drops out.
+            flicker += (rng.unit() - 0.5) * 0.004;
+            flicker = flicker.clamp(0.1, 1.0);
+            let hiss = hiss_bp.run(rng.noise(), 2200.0, 0.8).0 * 0.2 * flicker;
+            if rng.unit() < 7.0 / RATE as f32 {
+                crackle = rng.noise() * 0.8;
+            }
+            crackle *= 0.93;
+            let crack = crackle_hp.run(crackle * rng.unit(), 1500.0, 0.7).1;
+            let wobble = 0.85 + 0.15 * (TAU * 0.5 * t).sin();
+            hum * wobble + hiss + crack
         })
-        .collect()
+        .collect();
+    let mut out: Vec<f32> = raw[..n].to_vec();
+    for i in 0..overlap {
+        let x = i as f32 / overlap as f32;
+        let (a, b) = ((x * PI / 2.0).sin(), (x * PI / 2.0).cos());
+        out[i] = out[i] * a + raw[n + i] * b;
+    }
+    let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-6);
+    out.iter_mut().for_each(|s| *s *= 0.8 / peak);
+    out
 }
 
 /// Mono 16-bit PCM WAV.
@@ -288,34 +282,19 @@ fn wav(samples: &[f32]) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    fn all() -> Vec<(&'static str, Vec<f32>)> {
-        vec![
-            ("chirp", chirp()),
-            ("locate", sweep(380.0, 1150.0, 0.9, 9.0)),
-            ("lock", pips(3, 1320.0)),
-            ("chart", sweep(900.0, 260.0, 0.7, 6.0)),
-            ("tick", tick()),
-            ("buzz", buzz()),
-            ("hum", hum_loop()),
-        ]
-    }
-
     #[test]
-    fn sounds_stay_in_range_and_have_content() {
-        for (name, s) in all() {
-            assert!(!s.is_empty(), "{name} is empty");
-            let peak = s.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-            assert!(peak <= 1.0, "{name} clips at {peak}");
-            assert!(peak > 0.1, "{name} is nearly silent ({peak})");
+    fn effect_files_exist() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/sounds");
+        for name in ["select", "locate", "lock", "chart_in", "chart_out", "click", "nomatch"] {
+            let bytes = std::fs::read(dir.join(format!("{name}.wav"))).unwrap();
+            assert_eq!(&bytes[0..4], b"RIFF", "{name}.wav is not a WAV");
         }
     }
 
     #[test]
-    fn one_shots_fade_out() {
-        for (name, s) in all().into_iter().filter(|(n, _)| *n != "hum") {
-            let tail = s[s.len() - 20..].iter().fold(0.0f32, |m, v| m.max(v.abs()));
-            assert!(tail < 0.02, "{name} ends abruptly ({tail})");
-        }
+    fn hum_stays_in_range() {
+        let h = hum_loop();
+        assert!(h.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
     }
 
     #[test]
@@ -323,7 +302,7 @@ mod tests {
         let h = hum_loop();
         // The sample after the last would be the first again: no jump at the seam.
         let jump = (h[0] - h[h.len() - 1]).abs();
-        assert!(jump < 0.05, "loop seam jumps by {jump}");
+        assert!(jump < 0.08, "loop seam jumps by {jump}");
     }
 
     #[test]

@@ -11,3 +11,4 @@ catalog.workspace = true
 csv = "1"
 serde_json = "1"
 flate2 = "1"
+lewton = "0.10"

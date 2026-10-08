@@ -1,11 +1,13 @@
 //! Project tasks. Run with `cargo xtask <task>`.
 //!
 //!   data     convert the HYG csv (downloaded if missing) into assets/catalog/stars.bin
+//!   sfx      cut the cached Freesound clips into assets/sounds/*.wav
 //!   web      build the wasm viewer and the static site into dist/
 //!   serve    build web, then serve dist/ on http://localhost:8080
 //!            (`serve 8090` picks another port, `--no-build` serves the last build)
 
 mod data;
+mod sfx;
 
 use std::{
     env, fs,
@@ -25,6 +27,7 @@ fn main() {
     let res = match task.as_str() {
         "data" => data::data(env::args().any(|a| a == "--download")),
         "web" => web(),
+        "sfx" => sfx::sfx(&env::args().skip(2).collect::<Vec<_>>()),
         "serve" => {
             let args: Vec<String> = env::args().skip(2).collect();
             let port = args.iter().find_map(|a| a.parse().ok()).unwrap_or(8080);
@@ -32,7 +35,9 @@ fn main() {
             build.and_then(|_| serve(port))
         }
         _ => {
-            eprintln!("usage: cargo xtask <data [--download] | web | serve [port] [--no-build]>");
+            eprintln!(
+                "usage: cargo xtask <data [--download] | sfx [probe ID] | web | serve [port] [--no-build]>"
+            );
             exit(2);
         }
     };

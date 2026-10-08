@@ -301,7 +301,15 @@ fn credits(bundle: &Bundle, catalog: &Catalog) -> String {
              the SIMBAD database and the Sesame name resolver, operated at CDS, \
              Strasbourg, France.",
         ))
-        .child(Link::new("simbad.cds.unistra.fr", "https://simbad.cds.unistra.fr/simbad/"));
+        .child(Link::new("simbad.cds.unistra.fr", "https://simbad.cds.unistra.fr/simbad/"))
+        .child(Heading::new(2, "Sound effects"))
+        .child(Text::new(
+            "Trimmed from CC0 recordings on Freesound: \"Onboard Targeting Computer\" by \
+             harrisonlace, \"Blip 7\" by deleted_user_2906614, \"Scanner Sci-Fi\" by \
+             smokinghotdog and \"Sci-fi_short_error\" by melissapons. The projector hum is \
+             synthesised in the viewer.",
+        ))
+        .child(Link::new("freesound.org", "https://freesound.org/"));
     site_page(bundle, "Credits", "Data sources and licenses for Star-Navigator.", "", body)
 }
 

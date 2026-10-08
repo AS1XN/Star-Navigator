@@ -10,6 +10,7 @@ mod picking;
 mod search;
 mod simbad;
 mod sky;
+mod sound;
 mod touch;
 
 use bevy::asset::AssetMetaCheck;
@@ -144,6 +145,7 @@ fn main() {
             touch::TouchPlugin,
             simbad::SimbadPlugin,
             chart::ChartPlugin,
+            sound::SoundPlugin,
         ))
         .run();
 }

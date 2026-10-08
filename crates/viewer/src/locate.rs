@@ -59,6 +59,18 @@ impl Locate {
     pub fn current(&self) -> Option<usize> {
         self.target.filter(|_| self.into_field || self.note.is_some())
     }
+
+    /// The located star has arrived and the camera has settled on it.
+    pub fn locked(&self, view: &SkyView, orbit: &Orbit) -> bool {
+        self.into_field
+            && self.target.is_some()
+            && view.unfold > 0.999
+            && orbit.focus.distance(orbit.goal.focus) < 0.002
+    }
+
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
 }
 
 pub fn locate_input(

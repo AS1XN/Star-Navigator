@@ -34,6 +34,7 @@ search by name or catalog number; Enter on a result flies to the star in 3D.
 | Esc | Return from the 3D view to the sky chart |
 | V | Switch between the globe and the flat chart (briefing-table view) |
 | N | Centre the chart on the north or south celestial pole |
+| M | Sound on/off (off by default) |
 
 ## Building
 

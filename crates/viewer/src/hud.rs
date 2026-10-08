@@ -92,7 +92,7 @@ fn spawn_hud(mut commands: Commands) {
              [ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN\n\
              P PALETTE   T TUNE LOOK   H RAW VIEW\n\
              / FIND   L LOCATE SELECTED   ESC BACK\n\
-             V CHART VIEW   N CHART POLE",
+             V CHART VIEW   N CHART POLE   M SOUND",
         ),
         font(12.0),
         dim(),

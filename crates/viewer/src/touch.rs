@@ -14,6 +14,7 @@ use crate::look::{Look, PALETTES, Tinted, TintedBorder, Tuner};
 use crate::picking::{Selection, TAP_RADIUS_PX, Targets, pick_at};
 use crate::search::{Search, open_box};
 use crate::sky::{MAG_MAX, MAG_MIN, SkyView};
+use crate::sound::SoundOn;
 use crate::{AppState, HOLO, Typing};
 
 pub struct TouchPlugin;
@@ -136,6 +137,7 @@ enum Action {
     Calibrate,
     View,
     Pole,
+    Sound,
     CalPrev,
     CalNext,
     CalLess,
@@ -230,6 +232,7 @@ fn spawn_controls(mut commands: Commands) {
                 Action::Brighter,
                 Action::Palette,
                 Action::Raw,
+                Action::Sound,
                 Action::Calibrate,
             ] {
                 m.spawn(button(action, ""));
@@ -341,6 +344,7 @@ fn menu_labels(
     view: Res<SkyView>,
     orbit: Res<Orbit>,
     look: Res<Look>,
+    sound: Res<SoundOn>,
     rows: Query<(&Action, &Children)>,
     mut texts: Query<&mut Text>,
 ) {
@@ -359,6 +363,7 @@ fn menu_labels(
             Action::Calibrate => ("CALIBRATE", ">".into()),
             Action::View => ("VIEW", if view.chart_on { "CHART" } else { "GLOBE" }.into()),
             Action::Pole => ("CHART CENTER", if view.south { "SOUTH" } else { "NORTH" }.into()),
+            Action::Sound => ("SOUND", on_off(sound.0)),
             _ => continue,
         };
         let dots = ".".repeat(30usize.saturating_sub(name.len() + value.len()));
@@ -385,6 +390,7 @@ fn press_buttons(
     mut orbit: ResMut<Orbit>,
     mut view: ResMut<SkyView>,
     mut look: ResMut<Look>,
+    mut sound: ResMut<SoundOn>,
 ) {
     for (interaction, action, mut bg) in buttons {
         bg.0 = match interaction {
@@ -409,6 +415,7 @@ fn press_buttons(
             Action::Raw => look.toggle_bypass(),
             Action::View => toggle_chart(&mut view, &mut locate, &mut orbit),
             Action::Pole => view.south = !view.south,
+            Action::Sound => sound.0 = !sound.0,
             Action::Calibrate => {
                 tuner.open = true;
                 menu.open = false;

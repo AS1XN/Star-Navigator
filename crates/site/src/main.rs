@@ -377,6 +377,24 @@ const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
     setTimeout(() => { delete canvas.dataset.query; }, 400);
   });
 </script>
+<script>
+  // Browsers keep audio suspended until the page is interacted with. Track the
+  // audio contexts the viewer creates and wake them on the first tap or key.
+  (() => {
+    const contexts = [];
+    for (const name of ["AudioContext", "webkitAudioContext"]) {
+      const Base = window[name];
+      if (!Base) continue;
+      window[name] = class extends Base {
+        constructor(...args) { super(...args); contexts.push(this); }
+      };
+    }
+    const wake = () => contexts.forEach((c) => c.state === "suspended" && c.resume());
+    for (const ev of ["pointerdown", "keydown", "touchend"]) {
+      window.addEventListener(ev, wake, { capture: true });
+    }
+  })();
+</script>
 <script type="module">
   import init from "./{pkg}/star-navigator.js";
   const boot = document.getElementById("boot");

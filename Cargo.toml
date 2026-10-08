@@ -42,6 +42,8 @@ bevy = { version = "0.19.1", default-features = false, features = [
     "tonemapping_luts",
     "ktx2",
     "zstd_rust",
+    "bevy_audio",
+    "wav",
 ] }
 stucco = "0.2.1"
 

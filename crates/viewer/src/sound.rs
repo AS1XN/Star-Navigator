@@ -35,9 +35,15 @@ impl Plugin for SoundPlugin {
     }
 }
 
-/// Whether sound is enabled (off until the user turns it on).
-#[derive(Resource, Default)]
+/// Whether sound is enabled (on by default; browsers start it on the first input).
+#[derive(Resource)]
 pub struct SoundOn(pub bool);
+
+impl Default for SoundOn {
+    fn default() -> Self {
+        SoundOn(true)
+    }
+}
 
 const RATE: u32 = 22_050;
 

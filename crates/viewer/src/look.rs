@@ -80,6 +80,9 @@ pub struct Palette {
     pub color: Color,
 }
 
+/// Tactical red: the look with all effects on.
+const DEFAULT_PALETTE: usize = 1;
+
 pub const PALETTES: [Palette; 4] = [
     Palette { key: "holo", label: "HOLO BLUE", color: Color::srgb(0.72, 0.86, 1.0) },
     Palette { key: "tactical", label: "TACTICAL RED", color: Color::srgb(1.0, 0.36, 0.28) },
@@ -161,7 +164,7 @@ pub struct Look {
 
 impl Default for Look {
     fn default() -> Self {
-        Self { palette: 0, values: PARAMS.map(|p| p.default), bypass: false }
+        Self { palette: DEFAULT_PALETTE, values: PARAMS.map(|p| p.default), bypass: false }
     }
 }
 
@@ -170,8 +173,9 @@ impl Look {
         self.values[idx(key)]
     }
 
+    /// The palette colour, or plain holo blue while the effects are bypassed.
     pub fn color(&self) -> Color {
-        PALETTES[self.palette].color
+        if self.bypass { PALETTES[0].color } else { PALETTES[self.palette].color }
     }
 
     fn to_preset(&self) -> String {

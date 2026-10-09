@@ -5,6 +5,7 @@ use bevy::camera::Hdr;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use crate::look::HoloEffect;
 use crate::{GLOBE_RADIUS, hotkeys_enabled};
@@ -15,12 +16,14 @@ impl Plugin for OrbitPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Orbit>().add_systems(Startup, spawn_camera).add_systems(
             Update,
-            (spin_toggle.run_if(hotkeys_enabled), orbit_input, apply_orbit).chain(),
+            (spin_toggle.run_if(hotkeys_enabled), orbit_input, apply_orbit, fit_fov).chain(),
         );
     }
 }
 
 pub const GLOBE_DIST: f32 = GLOBE_RADIUS * 2.3;
+/// Field of view across the narrower side of the window.
+const BASE_FOV: f32 = std::f32::consts::FRAC_PI_4;
 const IDLE_SPIN_DELAY: f32 = 4.0;
 
 #[derive(Resource)]
@@ -166,6 +169,26 @@ fn orbit_input(
     }
 }
 
+/// Bevy's field of view is vertical, so a portrait phone would crop the globe at
+/// the sides. Widen it there so the narrow side always sees `BASE_FOV`.
+fn fit_fov(
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut projection: Single<&mut Projection, With<Camera3d>>,
+) {
+    let Projection::Perspective(p) = &mut **projection else { return };
+    let fov = portrait_fov(window.width() / window.height().max(1.0));
+    if (p.fov - fov).abs() > 1e-4 {
+        p.fov = fov;
+    }
+}
+
+fn portrait_fov(aspect: f32) -> f32 {
+    if aspect >= 1.0 {
+        return BASE_FOV;
+    }
+    (2.0 * ((BASE_FOV * 0.5).tan() / aspect.max(0.2)).atan()).min(1.9)
+}
+
 pub fn apply_orbit(orbit: Res<Orbit>, mut camera: Single<&mut Transform, With<Camera3d>>) {
     let rotation = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
     camera.translation = orbit.focus + rotation * Vec3::new(0.0, 0.0, orbit.distance);
@@ -175,6 +198,15 @@ pub fn apply_orbit(orbit: Res<Orbit>, mut camera: Single<&mut Transform, With<Ca
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portrait_keeps_the_width_in_view() {
+        assert_eq!(portrait_fov(16.0 / 9.0), BASE_FOV);
+        // Horizontal fov on a 9:19.5 phone matches the landscape vertical one.
+        let aspect = 9.0 / 19.5;
+        let horizontal = 2.0 * ((portrait_fov(aspect) * 0.5).tan() * aspect).atan();
+        assert!((horizontal - BASE_FOV).abs() < 1e-4);
+    }
 
     #[test]
     fn heading_points_camera_at_direction() {

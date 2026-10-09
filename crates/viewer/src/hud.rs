@@ -128,13 +128,23 @@ fn thousands(n: usize) -> String {
     out
 }
 
-fn status_text(view: Res<SkyView>, sky: Res<Sky>, mut q: Single<&mut Text, With<Status>>) {
-    if !view.is_changed() {
-        return;
-    }
+fn status_text(
+    view: Res<SkyView>,
+    sky: Res<Sky>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut q: Single<&mut Text, With<Status>>,
+) {
     let shown = sky.catalog.base().partition_point(|s| s.mag <= view.mag_limit) - 1;
-    q.0 =
-        format!("STAR-NAVIGATOR // {} STARS // LIMIT MAG {:.1}", thousands(shown), view.mag_limit);
+    let (stars, mag) = (thousands(shown), view.mag_limit);
+    // Phones get the short form so the line never wraps under the buttons.
+    let line = if window.width() < 520.0 {
+        format!("{stars} STARS // MAG {mag:.1}")
+    } else {
+        format!("STAR-NAVIGATOR // {stars} STARS // LIMIT MAG {mag:.1}")
+    };
+    if q.0 != line {
+        q.0 = line;
+    }
 }
 
 fn hover_tag(

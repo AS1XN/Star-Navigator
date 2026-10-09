@@ -14,7 +14,7 @@ use catalog::Hit;
 
 use crate::data::Sky;
 use crate::locate::{Locate, locate_input};
-use crate::look::Tinted;
+use crate::look::{Look, Tinted};
 use crate::simbad::Lookup;
 use crate::{AppState, HOLO, Typing, hotkeys_enabled};
 
@@ -234,6 +234,7 @@ type RowParts<'a> = (&'a ResultRow, &'a Children, &'a mut Node, &'a mut Backgrou
 #[allow(clippy::too_many_arguments)]
 fn draw_box(
     typing: Res<Typing>,
+    look: Res<Look>,
     search: Res<Search>,
     sky: Res<Sky>,
     time: Res<Time>,
@@ -295,7 +296,7 @@ fn draw_box(
         if let Some(mut text) = text.filter(|t| t.0 != line) {
             text.0 = line;
         }
-        bg.0 = if selected { HOLO.with_alpha(0.12) } else { Color::NONE };
+        bg.0 = if selected { look.color().with_alpha(0.12) } else { Color::NONE };
     }
 
     footer.0 = if search.results.is_empty() && !search.query.trim().is_empty() {

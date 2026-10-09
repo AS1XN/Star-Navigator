@@ -1,5 +1,5 @@
 # Star-Navigator look preset
-palette = holo
+palette = tactical
 scanlines = 1
 scan_period = 3
 roll = 0.5

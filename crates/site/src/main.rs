@@ -327,7 +327,7 @@ fn sitemap(urls: &[String]) -> String {
 
 const VIEWER_CSS: &str = r#"<style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  #viewer { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+  #viewer { display: block; width: 100vw; height: 100vh; height: 100dvh; outline: none; touch-action: none; }
   /* Touch screens get a real text field for FIND, since only a focused input can
      raise the on-screen keyboard. */
   /* Styled like the viewer's own touch buttons; --holo is set by the viewer to the
@@ -348,7 +348,7 @@ const VIEWER_CSS: &str = r#"<style>
   #boot { position: fixed; inset: 0; display: grid; place-items: center;
           color: oklch(85% 0.06 225); letter-spacing: 0.2em; pointer-events: none; }
   .site-nav { position: fixed; top: 16px; right: 20px; font-size: 0.8rem; }
-  .site-nav a { color: oklch(75% 0.06 225); margin-left: 1.2em; }
+  .site-nav a { color: var(--holo, oklch(75% 0.06 225)); margin-left: 1.2em; }
 </style>"#;
 
 const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>

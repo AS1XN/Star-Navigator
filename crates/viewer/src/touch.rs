@@ -394,8 +394,8 @@ fn press_buttons(
 ) {
     for (interaction, action, mut bg) in buttons {
         bg.0 = match interaction {
-            Interaction::Pressed => HOLO.with_alpha(0.3),
-            Interaction::Hovered => HOLO.with_alpha(0.12),
+            Interaction::Pressed => look.color().with_alpha(0.3),
+            Interaction::Hovered => look.color().with_alpha(0.12),
             Interaction::None => Color::BLACK.with_alpha(0.35),
         };
         if *interaction != Interaction::Pressed {

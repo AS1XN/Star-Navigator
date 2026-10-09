@@ -1,8 +1,8 @@
-//! The observer's place on Earth and the "tonight" overlay. Once a location is
-//! set (O opens the prompt, or the device location on the web), the hologram
-//! shader marks the part of the sky facing the observer tonight: a wedge within
-//! six hours of the meridian, a bright slice on the meridian that turns with
-//! the Earth, and the horizon. Y hides or shows it.
+//! The observer's place on Earth (San Francisco until one is set: O opens the
+//! prompt, or the device location on the web) and the "tonight" overlay. It is
+//! off until Y (or setting a location) turns it on. The hologram shader then
+//! marks the sky that crosses the meridian during tonight's dark hours, a bright
+//! slice on the meridian now that turns with the Earth, and the horizon.
 
 use std::f64::consts::{PI, TAU};
 use std::sync::Mutex;
@@ -20,7 +20,12 @@ pub struct ObserverPlugin;
 
 impl Plugin for ObserverPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Observer { place: load(), show: true, note: None }).add_systems(
+        app.insert_resource(Observer {
+            place: Some(load().unwrap_or(DEFAULT_PLACE)),
+            show: false,
+            note: None,
+        })
+        .add_systems(
             Update,
             (
                 observer_keys.run_if(hotkeys_enabled).run_if(in_state(AppState::Ready)),
@@ -48,6 +53,9 @@ impl Place {
         format!("{:.2}{ns} {:.2}{ew}", self.lat.abs(), self.lon.abs())
     }
 }
+
+/// Used until the viewer sets a place of their own: San Francisco.
+pub const DEFAULT_PLACE: Place = Place { lat: 37.77, lon: -122.42 };
 
 #[derive(Resource)]
 pub struct Observer {

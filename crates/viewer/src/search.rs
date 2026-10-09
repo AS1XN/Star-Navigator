@@ -16,7 +16,9 @@ use catalog::Hit;
 use crate::data::Sky;
 use crate::locate::{Locate, locate_input};
 use crate::look::{Look, Tinted};
-use crate::observer::{Observer, Place, device_available, parse_place, request_device};
+use crate::observer::{
+    DEFAULT_PLACE, Observer, Place, device_available, parse_place, request_device,
+};
 use crate::simbad::Lookup;
 use crate::sky::SkyView;
 use crate::{AppState, HOLO, Typing, hotkeys_enabled};
@@ -107,7 +109,7 @@ impl Search {
         if self.location {
             match self.location_row() {
                 Some(LocationRow::Set(place)) => c.observer.set(Some(place), &mut c.view),
-                Some(LocationRow::Clear) => c.observer.set(None, &mut c.view),
+                Some(LocationRow::Clear) => c.observer.set(Some(DEFAULT_PLACE), &mut c.view),
                 Some(LocationRow::Device) => request_device(),
                 None => {}
             }
@@ -346,7 +348,7 @@ fn draw_box(
         } else if search.location {
             let what = match search.location_row() {
                 Some(LocationRow::Set(place)) => format!("SET LOCATION {}", place.label()),
-                Some(LocationRow::Clear) => "CLEAR LOCATION".into(),
+                Some(LocationRow::Clear) => "RESET TO SAN FRANCISCO".into(),
                 Some(LocationRow::Device) => "USE DEVICE LOCATION".into(),
                 None => String::new(),
             };

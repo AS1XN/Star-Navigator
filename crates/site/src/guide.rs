@@ -150,18 +150,21 @@ pub fn guide(bundle: &Bundle) -> String {
         .child(section(
             "Tonight from your location",
             &[
-                "Press O (MENU > LOCATION on a phone) and type your latitude and longitude, \
-                 for example 34.05 -118.24 or 34.05N 118.24W. In the browser, leave it empty \
-                 and press Enter (or tap LOCATION on a phone) to use the device location \
-                 instead; the browser asks for permission first. Type CLEAR to forget it. The \
-                 location is remembered on this device, and a southern location turns the \
-                 chart to the south pole.",
-                "Once a location is set, the map marks your sky. The green wedge is the part \
+                "Press Y (MENU > TONIGHT on a phone) to mark your night sky on the map; it is \
+                 off until you turn it on, and Y hides it again. The location starts out as \
+                 San Francisco.",
+                "To use your own location, press O (MENU > LOCATION on a phone) and type your \
+                 latitude and longitude, for example 34.05 -118.24 or 34.05N 118.24W. In the \
+                 browser, leave it empty and press Enter (or tap LOCATION on a phone) to use \
+                 the device location instead; the browser asks for permission first. Type \
+                 CLEAR to go back to San Francisco. The location is remembered on this device, \
+                 and a southern location turns the chart to the south pole.",
+                "The green wedge is the part \
                  of the sky that passes overhead during tonight's dark hours, out to the \
                  farthest you can see toward the horizon. The narrow bright slice is the part \
                  overhead right now; it turns with the Earth, sweeping into the green wedge \
                  after dusk and out of it by dawn. A thin line traces your horizon. In the 3D \
-                 field only the outlines are drawn. Y (MENU > TONIGHT) hides or shows it.",
+                 field only the outlines are drawn.",
             ],
         ))
         .child(section(

@@ -78,16 +78,39 @@ pub struct Palette {
     pub key: &'static str,
     pub label: &'static str,
     pub color: Color,
+    /// Contrasting colour for the few marks that must stand out from the
+    /// monochrome hologram (the Sol size reference).
+    pub accent: Color,
 }
 
 /// Tactical red: the look with all effects on.
 const DEFAULT_PALETTE: usize = 1;
 
 pub const PALETTES: [Palette; 4] = [
-    Palette { key: "holo", label: "HOLO BLUE", color: Color::srgb(0.72, 0.86, 1.0) },
-    Palette { key: "tactical", label: "TACTICAL RED", color: Color::srgb(1.0, 0.36, 0.28) },
-    Palette { key: "targeting", label: "TARGETING AMBER", color: Color::srgb(1.0, 0.74, 0.3) },
-    Palette { key: "wireframe", label: "WIREFRAME GREEN", color: Color::srgb(0.5, 1.0, 0.6) },
+    Palette {
+        key: "holo",
+        label: "HOLO BLUE",
+        color: Color::srgb(0.72, 0.86, 1.0),
+        accent: Color::srgb(1.0, 0.72, 0.25),
+    },
+    Palette {
+        key: "tactical",
+        label: "TACTICAL RED",
+        color: Color::srgb(1.0, 0.36, 0.28),
+        accent: Color::srgb(1.0, 0.9, 0.2),
+    },
+    Palette {
+        key: "targeting",
+        label: "TARGETING AMBER",
+        color: Color::srgb(1.0, 0.74, 0.3),
+        accent: Color::srgb(0.35, 0.85, 1.0),
+    },
+    Palette {
+        key: "wireframe",
+        label: "WIREFRAME GREEN",
+        color: Color::srgb(0.5, 1.0, 0.6),
+        accent: Color::srgb(1.0, 0.45, 0.9),
+    },
 ];
 
 struct Param {
@@ -176,6 +199,12 @@ impl Look {
     /// The palette colour, or plain holo blue while the effects are bypassed.
     pub fn color(&self) -> Color {
         if self.bypass { PALETTES[0].color } else { PALETTES[self.palette].color }
+    }
+
+    /// The palette's accent colour. The raw view stays uniform, so there it is
+    /// the plain holo blue too.
+    pub fn accent(&self) -> Color {
+        if self.bypass { PALETTES[0].color } else { PALETTES[self.palette].accent }
     }
 
     fn to_preset(&self) -> String {

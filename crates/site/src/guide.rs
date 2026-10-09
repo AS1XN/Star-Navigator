@@ -131,7 +131,10 @@ pub fn guide(bundle: &Bundle) -> String {
                 "Where the data allows, it also estimates the surface temperature, how many \
                  times brighter and wider than the Sun the star is, and lists the three \
                  nearest stars. On larger screens a rotating wireframe model of the star sits \
-                 below the plate, sized against a dashed outline of the Sun.",
+                 below the plate, sized against a dashed outline of the Sun drawn in a \
+                 contrasting colour (yellow on the red palette). The model is scaled by the \
+                 fourth root of the radius so giants stay on screen; the plate gives the true \
+                 figure.",
             ],
         ))
         .child(section(

@@ -10,7 +10,7 @@ use catalog::{LY_PER_PC, Star};
 
 use crate::camera::apply_orbit;
 use crate::data::Sky;
-use crate::look::{Tinted, Tuner};
+use crate::look::{Look, Tinted, Tuner};
 use crate::picking::Selection;
 use crate::sky::SkyView;
 use crate::{AppState, HOLO, Typing, star_world};
@@ -21,7 +21,7 @@ impl Plugin for DossierPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dossier>().add_systems(Startup, spawn_ui).add_systems(
             Update,
-            (refresh, layout_plate, draw_model.after(apply_orbit), neighbour_tags)
+            (refresh, layout_plate, draw_model.after(apply_orbit), place_sol_ring, neighbour_tags)
                 .chain()
                 .run_if(in_state(AppState::Ready)),
         );
@@ -80,6 +80,13 @@ struct Plate;
 #[derive(Component)]
 struct NeighbourTag(usize);
 
+/// The dashed Sol reference. It is UI rather than a gizmo so it is drawn after the
+/// monochrome post-process and keeps the palette's accent colour.
+#[derive(Component)]
+struct SolRing;
+
+const SOL_DASHES: usize = 24;
+
 fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Plate,
@@ -98,6 +105,37 @@ fn spawn_ui(mut commands: Commands) {
             ..default()
         },
     ));
+    commands
+        .spawn((
+            SolRing,
+            ZIndex(10),
+            Visibility::Hidden,
+            Node {
+                position_type: PositionType::Absolute,
+                width: px(SOL_PX * 2.0),
+                height: px(SOL_PX * 2.0),
+                ..default()
+            },
+        ))
+        .with_children(|ring| {
+            let (len, thick) = (5.0, 2.0);
+            for i in 0..SOL_DASHES {
+                let a = i as f32 / SOL_DASHES as f32 * TAU;
+                let at = Vec2::splat(SOL_PX) + Vec2::new(a.cos(), a.sin()) * SOL_PX;
+                ring.spawn((
+                    BackgroundColor(Color::NONE),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: px(at.x - len * 0.5),
+                        top: px(at.y - thick * 0.5),
+                        width: px(len),
+                        height: px(thick),
+                        ..default()
+                    },
+                    UiTransform { rotation: Rot2::radians(a + PI * 0.5), ..default() },
+                ));
+            }
+        });
     // One tag per neighbour plus one for Sol.
     for slot in 0..=NEIGHBOURS {
         commands.spawn((
@@ -338,19 +376,6 @@ fn draw_model(
         );
     }
 
-    // Dashed Sol reference.
-    if dossier.radius.is_some() {
-        let sol = SOL_PX * scale.0;
-        for s in (0..STEPS).step_by(2) {
-            let a0 = s as f32 / STEPS as f32 * TAU;
-            let a1 = (s + 1) as f32 / STEPS as f32 * TAU;
-            let p = |a: f32| at(center_px + Vec2::new(a.cos(), a.sin()) * sol);
-            if let (Some(p0), Some(p1)) = (p(a0), p(a1)) {
-                gizmos.line(p0, p1, LinearRgba::from(HOLO) * 0.5);
-            }
-        }
-    }
-
     // Projection lines from the model's rim to the star itself.
     let ahead = |t: &Vec3| (*t - cam_pos).dot(*cam_forward) > 0.0;
     if let Some(target) = star_world(star, &view).filter(ahead) {
@@ -358,6 +383,32 @@ fn draw_model(
             if let Some(rim) = at(center_px + dir * r_px) {
                 gizmos.line(rim, target, LinearRgba::from(HOLO) * 0.25);
             }
+        }
+    }
+}
+
+/// Centres the Sol ring on the model and colours it with the palette accent.
+fn place_sol_ring(
+    dossier: Res<Dossier>,
+    look: Res<Look>,
+    scale: Res<UiScale>,
+    mut ring: Single<(&mut Node, &mut Visibility, &Children), With<SolRing>>,
+    mut dashes: Query<&mut BackgroundColor>,
+) {
+    let (node, vis, children) = &mut *ring;
+    let circle = dossier.model_circle.filter(|_| dossier.radius.is_some());
+    vis.set_if_neq(if circle.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    let Some((center, _)) = circle else { return };
+    let left = px(center.x / scale.0 - SOL_PX);
+    let top = px(center.y / scale.0 - SOL_PX);
+    if node.left != left || node.top != top {
+        node.left = left;
+        node.top = top;
+    }
+    let color = BackgroundColor(look.accent().with_alpha(0.95));
+    for child in children.iter() {
+        if let Ok(mut c) = dashes.get_mut(child) {
+            c.set_if_neq(color);
         }
     }
 }

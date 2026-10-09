@@ -461,11 +461,18 @@ fn draw_panel(
     look: Res<Look>,
     touch: Res<crate::touch::TouchState>,
     window: Single<&Window, With<PrimaryWindow>>,
-    mut panel: Single<&mut Text, With<Panel>>,
+    scale: Res<UiScale>,
+    panel: Single<(&mut Text, &mut Node), With<Panel>>,
 ) {
     let touch_mode = crate::touch::touch_mode(&touch, &window);
     if !tuner.is_changed() && !look.is_changed() && !touch.is_changed() {
         return;
+    }
+    let (mut panel, mut node) = panel.into_inner();
+    // Phones stack the page links in the top-right corner; open below them.
+    let top = if window.width() < 760.0 { 96.0 / scale.0.max(0.1) } else { 52.0 };
+    if node.top != px(top) {
+        node.top = px(top);
     }
     if !tuner.open {
         panel.0.clear();

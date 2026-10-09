@@ -154,7 +154,8 @@ docs/        this file
 - **Site (stucco):** generates the HTML shell that loads the wasm viewer, plus
   pre-rendered pages: a star index by constellation, one page per named star
   (deep-linkable as `/star/vega/`, which opens the viewer focused on that
-  star), and a credits page for the data licenses. Uses a custom OKLCH theme
+  star), a user guide covering every feature and control, and a credits page for
+  the data licenses. Uses a custom OKLCH theme
   in the holo palette. Fully static, so it deploys straight to GitHub Pages.
 - **Desktop:** the same viewer binary, packaged for Windows (and macOS/Linux
   via CI).

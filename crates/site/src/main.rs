@@ -1,6 +1,8 @@
 //! Generates the static website: the map page, one map page per named star (for
-//! deep links like `star/vega/`), the star catalog by constellation, credits, and a
-//! sitemap. Usage: `site <out-dir>`.
+//! deep links like `star/vega/`), the star catalog by constellation, a user guide,
+//! credits, and a sitemap. Usage: `site <out-dir>`.
+
+mod guide;
 
 use std::collections::HashMap;
 use std::{env, fs, io, path::Path};
@@ -24,7 +26,8 @@ fn main() -> io::Result<()> {
 
     let bundle = Bundle::new(theme());
     let catalog = load_catalog()?;
-    let mut urls = vec![String::new(), "catalog/".into(), "credits.html".into()];
+    let mut urls =
+        vec![String::new(), "guide.html".into(), "catalog/".into(), "credits.html".into()];
 
     fs::write(
         out.join("index.html"),
@@ -61,6 +64,7 @@ fn main() -> io::Result<()> {
         urls.push(format!("catalog/{file}"));
     }
 
+    fs::write(out.join("guide.html"), guide::guide(&bundle))?;
     fs::write(out.join("credits.html"), credits(&bundle, &catalog))?;
     fs::write(out.join("sitemap.xml"), sitemap(&urls))?;
     fs::write(
@@ -149,6 +153,7 @@ fn site_page(
     let nav = Cluster::new()
         .space(Space::S4)
         .child(Link::new("MAP", format!("{root}index.html")))
+        .child(Link::new("GUIDE", format!("{root}guide.html")))
         .child(Link::new("CATALOG", format!("{root}catalog/index.html")))
         .child(Link::new("CREDITS", format!("{root}credits.html")));
     page(bundle, &format!("{title} - Star-Navigator"))
@@ -349,11 +354,17 @@ const VIEWER_CSS: &str = r#"<style>
           color: oklch(85% 0.06 225); letter-spacing: 0.2em; pointer-events: none; }
   .site-nav { position: fixed; top: 16px; right: 20px; font-size: 0.8rem; }
   .site-nav a { color: var(--holo, oklch(75% 0.06 225)); margin-left: 1.2em; }
+  /* Phones stack the links in the corner instead of running them across the top. */
+  @media (max-width: 760px) {
+    .site-nav { display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+                top: 12px; right: 12px; }
+    .site-nav a { margin-left: 0; }
+  }
 </style>"#;
 
 const VIEWER_BODY: &str = r#"<canvas id="viewer"{focus}></canvas>
 <div id="boot">INITIALIZING STAR CHARTS...</div>
-<nav class="site-nav"><a href="catalog/index.html">CATALOG</a><a href="credits.html">CREDITS</a></nav>
+<nav class="site-nav"><a href="guide.html">GUIDE</a><a href="catalog/index.html">CATALOG</a><a href="credits.html">CREDITS</a></nav>
 <button id="find-btn" type="button">FIND</button>
 <input id="find" type="search" enterkeyhint="go" autocomplete="off" autocapitalize="off"
        spellcheck="false" placeholder="STAR NAME OR CATALOG NO." aria-label="Find a star">
@@ -449,6 +460,20 @@ mod tests {
         let star = viewer_page(&bundle, "pkg-1234abcd", "Vega", "D", "../../", Some("vega"));
         assert!(star.contains(r#"<base href="../../">"#));
         assert!(star.contains(r#"<canvas id="viewer" data-focus="vega">"#));
+    }
+
+    #[test]
+    fn guide_page_and_nav() {
+        let bundle = Bundle::new(theme());
+        let page = guide::guide(&bundle);
+        for needle in
+            ["Quick start", "LOCATE", "CHART", "RAW", "SIMBAD", "works best on a computer"]
+        {
+            assert!(page.contains(needle), "guide lacks {needle:?}");
+        }
+        assert!(page.contains(r#"href="guide.html""#));
+        let map = viewer_page(&bundle, "pkg", "T", "D", "", None);
+        assert!(map.contains(r#"<a href="guide.html">GUIDE</a>"#));
     }
 
     #[test]

@@ -38,14 +38,15 @@ This is a living document. The look will be adjusted as we go.
 | Briefing-room tactical holograms (red/green wireframe) | Wireframe spheres, lat/long grids, and the target-lock circle with a cone of lines connecting it to the map |
 | Round briefing table / tactical display | Flat **Chart view**: circular projection with tick-marked rim, sector wedges |
 | Vector targeting computer | Amber/yellow vector readouts, perspective grid, numeric counters |
-| Archive star-map room (Ep. II) | **Locate sequence**: the globe expands into a room-scale 3D field of stars; the camera flies to the target, and the target ring locks onto it |
+| Archive star-map room | **Locate sequence**: the globe expands into a room-scale 3D field of stars; the camera flies to the target, and the target ring locks onto it |
 
 Rules:
 - All art, fonts and sounds are original or openly licensed. Nothing is ripped
   from films.
 - Nothing from the 2015+ sequel-era designs.
-- Limited palettes: **holo blue-white** (default), **tactical red**,
-  **targeting amber** and **wireframe green**, switchable at runtime.
+- Limited palettes: **tactical red** (default), **holo blue-white**,
+  **targeting amber** and **wireframe green**, switchable at runtime. The raw
+  view (all effects off) always falls back to holo blue-white.
 - Text is monospace or vector-style and in uppercase where it helps the
   retro feel. Numbers count up instead of appearing instantly.
 
@@ -61,8 +62,9 @@ Each effect is applied as a full-screen pass and has its own adjustable paramete
 6. Film grain / static noise
 7. Vignette
 
-A developer panel (debug builds only) exposes every parameter as a slider so
-the look can be tuned live, with presets saved to RON files.
+A tuning panel (T, or MENU > CALIBRATE on touch screens) exposes every
+parameter so the look can be tuned live; presets are plain `key = value` text
+files in `assets/presets/`. RAW (H) bypasses the whole stack for comparison.
 
 ---
 
@@ -74,7 +76,8 @@ grid, celestial equator as a bright band, faint constellation lines. Drag to
 rotate, scroll to zoom, hover to show a name tag, click to select.
 
 ### Locate sequence
-Triggered by search or by double-clicking a star:
+Triggered by picking a search result, the LOCATE button (or L), or opening a
+star's own page:
 1. The globe "unfolds". Stars move from sphere positions to true 3D positions
    (parsecs, from parallax), so the sphere becomes a 3D field around Sol.
 2. The camera flies to the target. Neighbouring stars get labels and the
@@ -86,12 +89,26 @@ A panel alongside the selected star: wireframe sphere sized and tinted by
 spectral class, plus a data plate (designations, RA/Dec, distance in ly/pc,
 apparent/absolute magnitude, spectral type, luminosity, nearest neighbours).
 
-### Neighbourhood view
-Free-fly 3D view of stars within N parsecs of Sol, with distance rings
-around the Sun.
+### Neighbourhood field
+The unfolded 3D field doubles as the neighbourhood view: distance rings from 5
+to 100 parsecs around Sol, a Sol reticle and a bearing line to the target. Stars
+without a known distance turn the globe toward them instead.
 
-### Chart view (later)
-Flat circular sky chart in the briefing-table style.
+### Chart view
+Flat circular sky chart in the briefing-table style: the globe animates down
+onto a tilted table with a tick-marked double rim, declination rings, hour
+spokes and a sector wedge on the selected star. Either pole can be centred.
+
+### Touch screens
+One finger rotates, a pinch zooms, a tap selects. A slim bottom bar holds FIND,
+LOCATE, CHART/GLOBE, RAW/FX, BACK and MENU; MENU lists the remaining toggles
+(grid, figures, spin, star count, palette, sound, calibration). On portrait
+screens the camera widens its field of view so the globe fits the width.
+
+### Sound
+Short console effects (select, locate, target lock, chart sweeps, button
+clicks, lookup errors) trimmed from CC0 recordings, plus a synthesised
+projector hum. On by default; M or MENU > SOUND toggles it.
 
 ---
 
@@ -103,12 +120,15 @@ Flat circular sky chart in the briefing-table style.
 | IAU WGSN star names (via HYG) | Proper names | - |
 | [d3-celestial](https://github.com/ofrohn/d3-celestial) constellation lines | Constellation overlay | BSD-3 (attribution on credits page) |
 | SIMBAD (CDS) name resolver / TAP | Online fallback for stars not in the bundle | Free with acknowledgement |
+| [Freesound](https://freesound.org/) recordings | Sound effects, trimmed by `xtask sfx` | CC0 (credited anyway) |
 | Gaia DR3 subset (optional, later) | Deeper star field | Free with acknowledgement |
 
 **Pipeline:** an `xtask data` command downloads the raw CSVs into `data/raw/`
 (gitignored), cleans and converts them, and writes a compact binary catalog
-plus a name/designation search index to `assets/catalog/`. Target size is about
-4-6 MB uncompressed, much less with gzip/brotli on the web.
+plus a name/designation search index to `assets/catalog/` (about 5.8 MB, 3.6 MB
+gzipped). GitHub Pages serves `.wasm` and `.bin` files uncompressed, so the web
+build gzips them itself and the page unpacks them. `xtask sfx` cuts the cached
+sound recordings into `assets/sounds/`.
 
 ---
 
@@ -149,16 +169,16 @@ the 3D field, and mark it as "external".
 
 ## 6. Roadmap
 
-| Phase | Deliverable |
-|---|---|
-| 0. Setup | Toolchain, workspace skeleton, CI (fmt, clippy, test), empty Bevy window on desktop + web, GitHub Pages deploy |
-| 1. Catalog | `xtask data` pipeline, `catalog` crate with binary format + search, tests against known stars |
-| 2. Globe | All stars rendered on the celestial sphere, orbit camera, grid, equator band, constellations, hover/select |
-| 3. Hologram look | Post-processing stack, palettes, live tuning panel |
-| 4. Search & Locate | HUD search with autocomplete, sphere-to-3D transition, fly-to camera, target lock |
-| 5. Dossier | Wireframe star, data plate, neighbours |
-| 6. Website | stucco site: landing, catalog pages, deep links, credits, Pages deploy |
-| 7. Polish | Online SIMBAD fallback, Chart view, original sound effects, emitter-base model, touch controls, performance passes |
+| Phase | Deliverable | Status |
+|---|---|---|
+| 0. Setup | Toolchain, workspace skeleton, CI (fmt, clippy, test), empty Bevy window on desktop + web, GitHub Pages deploy | Done |
+| 1. Catalog | `xtask data` pipeline, `catalog` crate with binary format + search, tests against known stars | Done |
+| 2. Globe | All stars rendered on the celestial sphere, orbit camera, grid, equator band, constellations, hover/select | Done |
+| 3. Hologram look | Post-processing stack, palettes, live tuning panel | Done |
+| 4. Search & Locate | HUD search with autocomplete, sphere-to-3D transition, fly-to camera, target lock | Done |
+| 5. Dossier | Wireframe star, data plate, neighbours | Done |
+| 6. Website | stucco site: landing, catalog pages, deep links, credits, Pages deploy | Done |
+| 7. Polish | Online SIMBAD fallback, Chart view, sound effects, touch controls, performance passes | Done (emitter-base model still open) |
 
 ---
 
@@ -166,5 +186,4 @@ the 3D field, and mark it as "external".
 
 - Include deep-sky objects (nebulae, galaxies, clusters), e.g. the Messier list?
 - Highlight exoplanet host stars (NASA Exoplanet Archive)?
-- Sound: subtle analog beeps and hums, on or off by default?
 - Final name / logo treatment.

@@ -4,13 +4,17 @@
 
 use std::f32::consts::{PI, TAU};
 
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::shader::ShaderRef;
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::window::PrimaryWindow;
 use catalog::{LY_PER_PC, Star};
 
 use crate::camera::apply_orbit;
 use crate::data::Sky;
-use crate::look::{Look, Tinted, Tuner};
+use crate::look::{HoloEffect, Look, Tinted, Tuner};
 use crate::picking::Selection;
 use crate::sky::SkyView;
 use crate::{AppState, HOLO, Typing, star_world};
@@ -19,12 +23,21 @@ pub struct DossierPlugin;
 
 impl Plugin for DossierPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Dossier>().add_systems(Startup, spawn_ui).add_systems(
-            Update,
-            (refresh, layout_plate, draw_model.after(apply_orbit), place_sol_ring, neighbour_tags)
-                .chain()
-                .run_if(in_state(AppState::Ready)),
-        );
+        app.add_plugins(UiMaterialPlugin::<SolRingMaterial>::default())
+            .init_resource::<Dossier>()
+            .add_systems(Startup, spawn_ui)
+            .add_systems(
+                Update,
+                (
+                    refresh,
+                    layout_plate,
+                    draw_model.after(apply_orbit),
+                    place_sol_ring,
+                    neighbour_tags,
+                )
+                    .chain()
+                    .run_if(in_state(AppState::Ready)),
+            );
     }
 }
 
@@ -85,9 +98,34 @@ struct NeighbourTag(usize);
 #[derive(Component)]
 struct SolRing;
 
-const SOL_DASHES: usize = 24;
+const SOL_DASHES: f32 = 24.0;
+/// Side of the ring's node (logical px): the ring plus room for its glow.
+const RING_BOX: f32 = (SOL_PX + 8.0) * 2.0;
 
-fn spawn_ui(mut commands: Commands) {
+#[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
+struct SolRingMaterial {
+    #[uniform(0)]
+    holo: HoloEffect,
+    #[uniform(1)]
+    ring: RingUniform,
+}
+
+#[derive(Clone, Copy, Default, ShaderType)]
+struct RingUniform {
+    color: Vec4,
+    radius: f32,
+    px_scale: f32,
+    glow: f32,
+    dashes: f32,
+}
+
+impl UiMaterial for SolRingMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/sol_ring.wgsl".into()
+    }
+}
+
+fn spawn_ui(mut commands: Commands, mut rings: ResMut<Assets<SolRingMaterial>>) {
     commands.spawn((
         Plate,
         Text::new(""),
@@ -105,37 +143,18 @@ fn spawn_ui(mut commands: Commands) {
             ..default()
         },
     ));
-    commands
-        .spawn((
-            SolRing,
-            ZIndex(10),
-            Visibility::Hidden,
-            Node {
-                position_type: PositionType::Absolute,
-                width: px(SOL_PX * 2.0),
-                height: px(SOL_PX * 2.0),
-                ..default()
-            },
-        ))
-        .with_children(|ring| {
-            let (len, thick) = (5.0, 2.0);
-            for i in 0..SOL_DASHES {
-                let a = i as f32 / SOL_DASHES as f32 * TAU;
-                let at = Vec2::splat(SOL_PX) + Vec2::new(a.cos(), a.sin()) * SOL_PX;
-                ring.spawn((
-                    BackgroundColor(Color::NONE),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: px(at.x - len * 0.5),
-                        top: px(at.y - thick * 0.5),
-                        width: px(len),
-                        height: px(thick),
-                        ..default()
-                    },
-                    UiTransform { rotation: Rot2::radians(a + PI * 0.5), ..default() },
-                ));
-            }
-        });
+    commands.spawn((
+        SolRing,
+        MaterialNode(rings.add(SolRingMaterial::default())),
+        ZIndex(10),
+        Visibility::Hidden,
+        Node {
+            position_type: PositionType::Absolute,
+            width: px(RING_BOX),
+            height: px(RING_BOX),
+            ..default()
+        },
+    ));
     // One tag per neighbour plus one for Sol.
     for slot in 0..=NEIGHBOURS {
         commands.spawn((
@@ -387,30 +406,37 @@ fn draw_model(
     }
 }
 
-/// Centres the Sol ring on the model and colours it with the palette accent.
+/// Centres the Sol ring on the model and feeds it the accent colour and the
+/// hologram's current effect values.
 fn place_sol_ring(
     dossier: Res<Dossier>,
     look: Res<Look>,
     scale: Res<UiScale>,
-    mut ring: Single<(&mut Node, &mut Visibility, &Children), With<SolRing>>,
-    mut dashes: Query<&mut BackgroundColor>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    camera: Single<(&HoloEffect, &Bloom)>,
+    mut ring: Single<(&mut Node, &mut Visibility, &MaterialNode<SolRingMaterial>), With<SolRing>>,
+    mut materials: ResMut<Assets<SolRingMaterial>>,
 ) {
-    let (node, vis, children) = &mut *ring;
+    let (node, vis, material) = &mut *ring;
     let circle = dossier.model_circle.filter(|_| dossier.radius.is_some());
     vis.set_if_neq(if circle.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     let Some((center, _)) = circle else { return };
-    let left = px(center.x / scale.0 - SOL_PX);
-    let top = px(center.y / scale.0 - SOL_PX);
+    let left = px(center.x / scale.0 - RING_BOX * 0.5);
+    let top = px(center.y / scale.0 - RING_BOX * 0.5);
     if node.left != left || node.top != top {
         node.left = left;
         node.top = top;
     }
-    let color = BackgroundColor(look.accent().with_alpha(0.95));
-    for child in children.iter() {
-        if let Ok(mut c) = dashes.get_mut(child) {
-            c.set_if_neq(color);
-        }
-    }
+    let Some(mut m) = materials.get_mut(&material.0) else { return };
+    let (holo, bloom) = *camera;
+    m.holo = *holo;
+    m.ring = RingUniform {
+        color: LinearRgba::from(look.accent()).to_vec4(),
+        radius: SOL_PX / RING_BOX,
+        px_scale: window.scale_factor() * scale.0,
+        glow: 0.2 + bloom.intensity,
+        dashes: SOL_DASHES,
+    };
 }
 
 /// Name tags for the selected star's neighbours (and Sol) once the field is open.

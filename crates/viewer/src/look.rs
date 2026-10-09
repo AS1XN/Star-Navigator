@@ -44,7 +44,7 @@ impl Plugin for LookPlugin {
 }
 
 /// Uniforms for `holo.wgsl`. Lives on the camera; rebuilt from [`Look`] each frame.
-#[derive(Component, ExtractComponent, Clone, Copy, ShaderType, Default)]
+#[derive(Component, ExtractComponent, Clone, Copy, ShaderType, Default, Debug)]
 pub struct HoloEffect {
     tint: Vec4,
     resolution: Vec2,

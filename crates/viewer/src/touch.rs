@@ -1,7 +1,8 @@
 //! Touch screens: one finger rotates, two fingers pinch to zoom, a quick tap selects
 //! a star. Also the on-screen controls that stand in for keyboard shortcuts on touch
-//! screens and narrow windows: a slim bottom row (FIND, LOCATE, BACK, MENU), a MENU
-//! list with every display toggle, and a strip for the calibration panel.
+//! screens and narrow windows: a slim bottom row (FIND, LOCATE, CHART/GLOBE, RAW/FX,
+//! BACK, MENU), a MENU list with the other display toggles, and a strip for the
+//! calibration panel.
 
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
@@ -28,7 +29,15 @@ impl Plugin for TouchPlugin {
                 Update,
                 (
                     gestures.before(apply_orbit),
-                    (show_controls, size_buttons, press_buttons, menu_labels, place_menu).chain(),
+                    (
+                        show_controls,
+                        size_buttons,
+                        press_buttons,
+                        bar_labels,
+                        menu_labels,
+                        place_menu,
+                    )
+                        .chain(),
                 ),
             )
             .add_systems(Update, taps.run_if(in_state(AppState::Ready)));
@@ -163,7 +172,7 @@ struct CalStrip;
 /// status line.
 const BAR_BOTTOM: f32 = 36.0;
 /// Width the page's own FIND button needs at the left of the bar (web only).
-const PAGE_FIND_ROOM: f32 = 84.0;
+const PAGE_FIND_ROOM: f32 = 62.0;
 
 /// Thin palette-coloured outline over a faint dark backing, like a terminal key.
 fn button(action: Action, label: &str) -> impl Bundle {
@@ -189,6 +198,9 @@ fn spawn_controls(mut commands: Commands) {
         right: px(12),
         bottom: px(BAR_BOTTOM),
         column_gap: px(6),
+        row_gap: px(6),
+        // A very narrow phone wraps onto a second row rather than overflowing.
+        flex_wrap: FlexWrap::Wrap,
         justify_content: JustifyContent::FlexEnd,
         ..default()
     };
@@ -200,6 +212,8 @@ fn spawn_controls(mut commands: Commands) {
             b.spawn(button(Action::Find, "FIND"));
         }
         b.spawn(button(Action::Locate, "LOCATE"));
+        b.spawn(button(Action::View, "CHART"));
+        b.spawn(button(Action::Raw, "RAW"));
         b.spawn(button(Action::Back, "BACK"));
         b.spawn(button(Action::Menu, "MENU"));
     });
@@ -223,7 +237,6 @@ fn spawn_controls(mut commands: Commands) {
         ))
         .with_children(|m| {
             for action in [
-                Action::View,
                 Action::Pole,
                 Action::Grid,
                 Action::Figures,
@@ -231,7 +244,6 @@ fn spawn_controls(mut commands: Commands) {
                 Action::Fainter,
                 Action::Brighter,
                 Action::Palette,
-                Action::Raw,
                 Action::Sound,
                 Action::Calibrate,
             ] {
@@ -295,6 +307,7 @@ fn size_buttons(
         node.right = px(12.0 / s);
         node.bottom = px(BAR_BOTTOM / s);
         node.column_gap = px(6.0 / s);
+        node.row_gap = px(6.0 / s);
         // Leave room for the page's FIND button at the left of the bar.
         node.left = if is_bar && cfg!(target_arch = "wasm32") {
             px((12.0 + PAGE_FIND_ROOM) / s)
@@ -303,7 +316,7 @@ fn size_buttons(
         };
     }
     for (mut node, children) in &mut buttons {
-        node.padding = UiRect::axes(px(10.0 / s), px(7.0 / s));
+        node.padding = UiRect::axes(px(8.0 / s), px(7.0 / s));
         for child in children {
             if let Ok(mut font) = fonts.get_mut(*child) {
                 font.font_size = FontSize::Px(13.0 / s);
@@ -338,6 +351,44 @@ fn on_off(on: bool) -> String {
     if on { "ON".into() } else { "OFF".into() }
 }
 
+/// The bar's toggles name what they switch to.
+fn bar_labels(
+    view: Res<SkyView>,
+    look: Res<Look>,
+    rows: Query<(&Action, &Children)>,
+    mut texts: Query<&mut Text>,
+) {
+    if !view.is_changed() && !look.is_changed() {
+        return;
+    }
+    for (action, children) in &rows {
+        let label = match action {
+            Action::View => {
+                if view.chart_on {
+                    "GLOBE"
+                } else {
+                    "CHART"
+                }
+            }
+            Action::Raw => {
+                if look.bypassed() {
+                    "FX"
+                } else {
+                    "RAW"
+                }
+            }
+            _ => continue,
+        };
+        for child in children {
+            if let Ok(mut text) = texts.get_mut(*child)
+                && text.0 != label
+            {
+                text.0 = label.into();
+            }
+        }
+    }
+}
+
 /// Menu rows show their current state, terminal style: "GRID ........ ON".
 fn menu_labels(
     menu: Res<Menu>,
@@ -359,9 +410,7 @@ fn menu_labels(
             Action::Fainter => ("MORE STARS", format!("MAG {:.1}", view.mag_limit)),
             Action::Brighter => ("FEWER STARS", format!("MAG {:.1}", view.mag_limit)),
             Action::Palette => ("PALETTE", PALETTES[look.palette].label.to_string()),
-            Action::Raw => ("RAW VIEW", on_off(look.bypassed())),
             Action::Calibrate => ("CALIBRATE", ">".into()),
-            Action::View => ("VIEW", if view.chart_on { "CHART" } else { "GLOBE" }.into()),
             Action::Pole => ("CHART CENTER", if view.south { "SOUTH" } else { "NORTH" }.into()),
             Action::Sound => ("SOUND", on_off(sound.0)),
             _ => continue,

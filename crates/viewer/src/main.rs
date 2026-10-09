@@ -6,6 +6,7 @@ mod dossier;
 mod hud;
 mod locate;
 mod look;
+mod observer;
 mod picking;
 mod search;
 mod simbad;
@@ -146,6 +147,7 @@ fn main() {
             simbad::SimbadPlugin,
             chart::ChartPlugin,
             sound::SoundPlugin,
+            observer::ObserverPlugin,
         ))
         .run();
 }

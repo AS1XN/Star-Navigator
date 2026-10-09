@@ -39,6 +39,8 @@ const CONTROLS: &[(&str, &str, &str)] = &[
     ("Slow automatic spin", "Space", "MENU > SPIN"),
     ("Show more / fewer stars", "] and [ (or = and -)", "MENU > MORE / FEWER STARS"),
     ("Change colour", "P", "MENU > PALETTE"),
+    ("Set your location", "O", "MENU > LOCATION"),
+    ("Tonight overlay on / off", "Y", "MENU > TONIGHT"),
     ("Sound on / off", "M", "MENU > SOUND"),
     ("Tune the screen effects", "T", "MENU > CALIBRATE"),
 ];
@@ -144,6 +146,23 @@ pub fn guide(bundle: &Bundle) -> String {
                  around the rim and a sector wedge pointing at the selected star. N (MENU > \
                  CHART CENTER on a phone) switches between the north and south pole. Press V \
                  or GLOBE to lift it back into a globe."],
+        ))
+        .child(section(
+            "Tonight from your location",
+            &[
+                "Press O (MENU > LOCATION on a phone) and type your latitude and longitude, \
+                 for example 34.05 -118.24 or 34.05N 118.24W. In the browser, leave it empty \
+                 and press Enter (or tap LOCATION on a phone) to use the device location \
+                 instead; the browser asks for permission first. Type CLEAR to forget it. The \
+                 location is remembered on this device, and a southern location turns the \
+                 chart to the south pole.",
+                "Once a location is set, the map marks your sky. The green wedge is the part \
+                 of the sky that passes overhead during tonight's dark hours, out to the \
+                 farthest you can see toward the horizon. The narrow bright slice is the part \
+                 overhead right now; it turns with the Earth, sweeping into the green wedge \
+                 after dusk and out of it by dawn. A thin line traces your horizon. In the 3D \
+                 field only the outlines are drawn. Y (MENU > TONIGHT) hides or shows it.",
+            ],
         ))
         .child(section(
             "Look and screen effects",

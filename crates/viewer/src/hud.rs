@@ -5,6 +5,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::data::{LoadError, Sky};
 use crate::look::Tinted;
+use crate::observer::Observer;
 use crate::picking::Selection;
 use crate::sky::SkyView;
 use crate::touch::{TouchState, touch_mode};
@@ -92,7 +93,8 @@ fn spawn_hud(mut commands: Commands) {
              [ ] MAG LIMIT   G GRID   C FIGURES   SPACE SPIN\n\
              P PALETTE   T TUNE LOOK   H RAW VIEW\n\
              / FIND   L LOCATE SELECTED   ESC BACK\n\
-             V CHART VIEW   N CHART POLE   M SOUND",
+             V CHART VIEW   N CHART POLE   M SOUND\n\
+             O LOCATION   Y TONIGHT",
         ),
         font(12.0),
         dim(),
@@ -130,6 +132,7 @@ fn thousands(n: usize) -> String {
 
 fn status_text(
     view: Res<SkyView>,
+    observer: Res<Observer>,
     sky: Res<Sky>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut q: Single<&mut Text, With<Status>>,
@@ -140,7 +143,11 @@ fn status_text(
     let line = if window.width() < 520.0 {
         format!("{stars} STARS // MAG {mag:.1}")
     } else {
-        format!("STAR-NAVIGATOR // {stars} STARS // LIMIT MAG {mag:.1}")
+        let obs = match observer.place {
+            Some(p) if observer.show => format!(" // TONIGHT FROM {}", p.label()),
+            _ => String::new(),
+        };
+        format!("STAR-NAVIGATOR // {stars} STARS // LIMIT MAG {mag:.1}{obs}")
     };
     if q.0 != line {
         q.0 = line;

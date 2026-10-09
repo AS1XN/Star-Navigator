@@ -5086,6 +5086,7 @@ dependencies = [
  "bevy",
  "catalog",
  "flate2",
+ "js-sys",
  "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",

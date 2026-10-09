@@ -12,8 +12,9 @@ use crate::camera::{Orbit, apply_orbit, over_ui};
 use crate::chart::toggle_chart;
 use crate::locate::Locate;
 use crate::look::{Look, PALETTES, Tinted, TintedBorder, Tuner};
+use crate::observer::{Observer, device_available, request_device};
 use crate::picking::{Selection, TAP_RADIUS_PX, Targets, pick_at};
-use crate::search::{Search, open_box};
+use crate::search::{Search, open_box, open_location};
 use crate::sky::{MAG_MAX, MAG_MIN, SkyView};
 use crate::sound::SoundOn;
 use crate::{AppState, HOLO, Typing};
@@ -147,6 +148,8 @@ enum Action {
     View,
     Pole,
     Sound,
+    Location,
+    Tonight,
     CalPrev,
     CalNext,
     CalLess,
@@ -237,6 +240,8 @@ fn spawn_controls(mut commands: Commands) {
         ))
         .with_children(|m| {
             for action in [
+                Action::Location,
+                Action::Tonight,
                 Action::Pole,
                 Action::Grid,
                 Action::Figures,
@@ -390,12 +395,14 @@ fn bar_labels(
 }
 
 /// Menu rows show their current state, terminal style: "GRID ........ ON".
+#[allow(clippy::too_many_arguments)]
 fn menu_labels(
     menu: Res<Menu>,
     view: Res<SkyView>,
     orbit: Res<Orbit>,
     look: Res<Look>,
     sound: Res<SoundOn>,
+    observer: Res<Observer>,
     rows: Query<(&Action, &Children)>,
     mut texts: Query<&mut Text>,
 ) {
@@ -413,6 +420,8 @@ fn menu_labels(
             Action::Calibrate => ("CALIBRATE", ">".into()),
             Action::Pole => ("CHART CENTER", if view.south { "SOUTH" } else { "NORTH" }.into()),
             Action::Sound => ("SOUND", on_off(sound.0)),
+            Action::Location => ("LOCATION", observer.place.map_or("SET >".into(), |p| p.label())),
+            Action::Tonight => ("TONIGHT", on_off(observer.show && observer.place.is_some())),
             _ => continue,
         };
         let dots = ".".repeat(30usize.saturating_sub(name.len() + value.len()));
@@ -440,6 +449,7 @@ fn press_buttons(
     mut view: ResMut<SkyView>,
     mut look: ResMut<Look>,
     mut sound: ResMut<SoundOn>,
+    mut observer: ResMut<Observer>,
 ) {
     for (interaction, action, mut bg) in buttons {
         bg.0 = match interaction {
@@ -465,6 +475,15 @@ fn press_buttons(
             Action::View => toggle_chart(&mut view, &mut locate, &mut orbit),
             Action::Pole => view.south = !view.south,
             Action::Sound => sound.0 = !sound.0,
+            Action::Location => {
+                menu.open = false;
+                if device_available() {
+                    request_device();
+                } else {
+                    open_location(&mut search, &mut typing);
+                }
+            }
+            Action::Tonight => observer.show = !observer.show,
             Action::Calibrate => {
                 tuner.open = true;
                 menu.open = false;

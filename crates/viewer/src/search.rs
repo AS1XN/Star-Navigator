@@ -6,6 +6,7 @@
 //! into the canvas's `data-query` attribute and signals Enter through `data-submit`;
 //! `web_bridge` picks those up here.
 
+use bevy::ecs::system::SystemParam;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
@@ -15,7 +16,9 @@ use catalog::Hit;
 use crate::data::Sky;
 use crate::locate::{Locate, locate_input};
 use crate::look::{Look, Tinted};
+use crate::observer::{Observer, Place, device_available, parse_place, request_device};
 use crate::simbad::Lookup;
+use crate::sky::SkyView;
 use crate::{AppState, HOLO, Typing, hotkeys_enabled};
 
 pub struct SearchPlugin;
@@ -52,6 +55,14 @@ pub struct Search {
     /// Opened from the page's text field rather than the keyboard.
     from_web: bool,
     last_submit: Option<String>,
+    /// Taking the observer's location (O) instead of a star name.
+    location: bool,
+}
+
+enum LocationRow {
+    Set(Place),
+    Device,
+    Clear,
 }
 
 /// Opens an empty FIND box (the `/` key or the FIND button).
@@ -60,15 +71,49 @@ pub fn open_box(search: &mut Search, typing: &mut Typing) {
     *search = Search { just_opened: true, last_submit: search.last_submit.take(), ..default() };
 }
 
+/// Opens the box as the LOCATION prompt (the O key or MENU > LOCATION).
+pub fn open_location(search: &mut Search, typing: &mut Typing) {
+    open_box(search, typing);
+    search.location = true;
+}
+
 impl Search {
     /// Long enough to be worth asking SIMBAD about.
     fn online_ok(&self) -> bool {
+        if self.location {
+            return self.location_row().is_some();
+        }
         self.query.trim().chars().count() >= 2
     }
 
+    /// What Enter does in the LOCATION prompt for the current text.
+    fn location_row(&self) -> Option<LocationRow> {
+        let q = self.query.trim();
+        if let Some(place) = parse_place(q) {
+            Some(LocationRow::Set(place))
+        } else if q.eq_ignore_ascii_case("clear") {
+            Some(LocationRow::Clear)
+        } else if device_available() && (q.is_empty() || q.eq_ignore_ascii_case("here")) {
+            Some(LocationRow::Device)
+        } else {
+            None
+        }
+    }
+
     /// Locates the highlighted result, or sends the query to SIMBAD when the
-    /// highlight is on the online row (or there are no results at all).
-    fn choose(&self, locate: &mut Locate, lookup: &mut Lookup) {
+    /// highlight is on the online row (or there are no results at all). In the
+    /// LOCATION prompt it sets, clears or asks for the observer's place.
+    fn choose(&self, c: &mut Choice) {
+        if self.location {
+            match self.location_row() {
+                Some(LocationRow::Set(place)) => c.observer.set(Some(place), &mut c.view),
+                Some(LocationRow::Clear) => c.observer.set(None, &mut c.view),
+                Some(LocationRow::Device) => request_device(),
+                None => {}
+            }
+            return;
+        }
+        let (locate, lookup) = (&mut c.locate, &mut c.lookup);
         match self.results.get(self.cursor) {
             Some(hit) => locate.request = Some(hit.index),
             None if self.online_ok() => lookup.request(&self.query),
@@ -78,11 +123,21 @@ impl Search {
 
     fn set_query(&mut self, query: String, sky: &Sky) {
         if query != self.query {
-            self.results = sky.catalog.search(&query, MAX_RESULTS);
+            self.results =
+                if self.location { Vec::new() } else { sky.catalog.search(&query, MAX_RESULTS) };
             self.query = query;
             self.cursor = 0;
         }
     }
+}
+
+/// Everything choosing a row can change.
+#[derive(SystemParam)]
+struct Choice<'w> {
+    locate: ResMut<'w, Locate>,
+    lookup: ResMut<'w, Lookup>,
+    observer: ResMut<'w, Observer>,
+    view: ResMut<'w, SkyView>,
 }
 
 #[derive(Component)]
@@ -155,8 +210,7 @@ fn type_search(
     mut keys_in: MessageReader<KeyboardInput>,
     mut typing: ResMut<Typing>,
     mut search: ResMut<Search>,
-    mut locate: ResMut<Locate>,
-    mut lookup: ResMut<Lookup>,
+    mut choice: Choice,
     sky: Res<Sky>,
 ) {
     if !typing.0 || search.from_web || std::mem::take(&mut search.just_opened) {
@@ -171,7 +225,7 @@ fn type_search(
         match &ev.logical_key {
             Key::Escape => typing.0 = false,
             Key::Enter => {
-                search.choose(&mut locate, &mut lookup);
+                search.choose(&mut choice);
                 typing.0 = false;
             }
             Key::Backspace => {
@@ -205,8 +259,7 @@ fn pick_row(
     rows: Query<(&Interaction, &ResultRow), Changed<Interaction>>,
     mut typing: ResMut<Typing>,
     mut search: ResMut<Search>,
-    mut locate: ResMut<Locate>,
-    mut lookup: ResMut<Lookup>,
+    mut choice: Choice,
 ) {
     if !typing.0 {
         return;
@@ -220,7 +273,7 @@ fn pick_row(
         match interaction {
             Interaction::Pressed => {
                 search.cursor = slot;
-                search.choose(&mut locate, &mut lookup);
+                search.choose(&mut choice);
                 typing.0 = false;
             }
             Interaction::Hovered => search.cursor = slot,
@@ -243,6 +296,7 @@ fn draw_box(
     mut panel: Single<&mut Visibility, (With<Panel>, Without<ResultRow>)>,
     mut header: Single<&mut Text, (With<Header>, Without<Footer>)>,
     mut footer: Single<&mut Text, (With<Footer>, Without<Header>)>,
+    observer: Res<Observer>,
     mut rows: Query<RowParts>,
     mut row_text: Query<&mut Text, (Without<Header>, Without<Footer>)>,
 ) {
@@ -257,7 +311,8 @@ fn draw_box(
     }
     let narrow = window.width() < 600.0;
     let caret = if time.elapsed_secs().fract() < 0.5 { "_" } else { " " };
-    header.0 = format!("FIND > {}{caret}", search.query.to_uppercase());
+    let prompt = if search.location { "LOCATION" } else { "FIND" };
+    header.0 = format!("{prompt} > {}{caret}", search.query.to_uppercase());
 
     for (row, children, mut node, mut bg) in &mut rows {
         let online = row.0 == SIMBAD_ROW;
@@ -288,6 +343,14 @@ fn draw_box(
                 let label: String = hit.label.to_uppercase().chars().take(34).collect();
                 format!("{marker} {label:<34} {:+6.2} {dist}", star.mag)
             }
+        } else if search.location {
+            let what = match search.location_row() {
+                Some(LocationRow::Set(place)) => format!("SET LOCATION {}", place.label()),
+                Some(LocationRow::Clear) => "CLEAR LOCATION".into(),
+                Some(LocationRow::Device) => "USE DEVICE LOCATION".into(),
+                None => String::new(),
+            };
+            format!("{marker} {what}")
         } else {
             let q: String = search.query.trim().to_uppercase().chars().take(20).collect();
             format!("{marker} QUERY SIMBAD ONLINE: \"{q}\"")
@@ -299,7 +362,16 @@ fn draw_box(
         bg.0 = if selected { look.color().with_alpha(0.12) } else { Color::NONE };
     }
 
-    footer.0 = if search.results.is_empty() && !search.query.trim().is_empty() {
+    footer.0 = if search.location {
+        let current = observer.place.map_or("NOT SET".into(), |p| p.label());
+        match &observer.note {
+            Some(note) => format!("{note} // NOW {current}"),
+            None if narrow => format!("LAT LON, E.G. 34.05 -118.24 // NOW {current}"),
+            None => format!(
+                "LAT LON, E.G. 34.05 -118.24 OR 34.05N 118.24W   CLEAR   ESC CANCEL // NOW {current}"
+            ),
+        }
+    } else if search.results.is_empty() && !search.query.trim().is_empty() {
         "NO MATCH IN CATALOG // ENTER TO ASK SIMBAD".into()
     } else {
         if narrow {
@@ -320,8 +392,7 @@ fn canvas() -> Option<web_sys::Element> {
 fn web_bridge(
     mut search: ResMut<Search>,
     mut typing: ResMut<Typing>,
-    mut locate: ResMut<Locate>,
-    mut lookup: ResMut<Lookup>,
+    mut choice: Choice,
     sky: Res<Sky>,
 ) {
     let Some(canvas) = canvas() else { return };
@@ -329,7 +400,7 @@ fn web_bridge(
     if submit.is_some() && submit != search.last_submit {
         search.last_submit = submit;
         if search.from_web {
-            search.choose(&mut locate, &mut lookup);
+            search.choose(&mut choice);
             typing.0 = false;
         }
         return;

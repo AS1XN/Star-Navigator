@@ -33,7 +33,7 @@ impl Plugin for LookPlugin {
                 (
                     apply_preset,
                     tune_input.run_if(crate::hotkeys_enabled),
-                    update_effect,
+                    update_effect.before(crate::observer::feed_overlay),
                     update_stars,
                     tint_text,
                     show_backed,
@@ -61,6 +61,19 @@ pub struct HoloEffect {
     mono: f32,
     mask: f32,
     _pad: Vec2,
+    // Tonight overlay (see observer.rs): camera ray basis and sky parameters.
+    pub cam_pos: Vec4,
+    pub cam_right: Vec4,
+    pub cam_up: Vec4,
+    pub cam_fwd: Vec4,
+    /// Latitude, local sidereal time (radians), strength, chart amount.
+    pub sky: Vec4,
+    /// Unfold amount, chart pole (+1 or -1), chart radius, globe radius.
+    pub sky2: Vec4,
+    /// Tonight's wedge: centre right ascension and half width (radians).
+    pub sky3: Vec4,
+    pub wedge_color: Vec4,
+    pub now_color: Vec4,
 }
 
 impl FullscreenMaterial for HoloEffect {
@@ -78,6 +91,8 @@ pub struct Palette {
     pub key: &'static str,
     pub label: &'static str,
     pub color: Color,
+    /// Main wedge of the tonight overlay.
+    pub wedge: Color,
     /// Contrasting colour for the few marks that must stand out from the
     /// monochrome hologram (the Sol size reference).
     pub accent: Color,
@@ -91,24 +106,28 @@ pub const PALETTES: [Palette; 4] = [
         key: "holo",
         label: "HOLO BLUE",
         color: Color::srgb(0.72, 0.86, 1.0),
+        wedge: Color::srgb(0.3, 1.0, 0.4),
         accent: Color::srgb(1.0, 0.72, 0.25),
     },
     Palette {
         key: "tactical",
         label: "TACTICAL RED",
         color: Color::srgb(1.0, 0.36, 0.28),
+        wedge: Color::srgb(0.3, 1.0, 0.4),
         accent: Color::srgb(1.0, 0.9, 0.2),
     },
     Palette {
         key: "targeting",
         label: "TARGETING AMBER",
         color: Color::srgb(1.0, 0.74, 0.3),
+        wedge: Color::srgb(0.3, 1.0, 0.4),
         accent: Color::srgb(0.35, 0.85, 1.0),
     },
     Palette {
         key: "wireframe",
         label: "WIREFRAME GREEN",
         color: Color::srgb(0.5, 1.0, 0.6),
+        wedge: Color::srgb(0.3, 0.55, 1.0),
         accent: Color::srgb(1.0, 0.45, 0.9),
     },
 ];
@@ -205,6 +224,16 @@ impl Look {
     /// the plain holo blue too.
     pub fn accent(&self) -> Color {
         if self.bypass { PALETTES[0].color } else { PALETTES[self.palette].accent }
+    }
+
+    /// Wedge and "now" colours of the tonight overlay; plain holo blue in the raw view.
+    pub fn overlay_colors(&self) -> (Color, Color) {
+        if self.bypass {
+            (PALETTES[0].color, PALETTES[0].color)
+        } else {
+            let p = &PALETTES[self.palette];
+            (p.wedge, p.accent)
+        }
     }
 
     fn to_preset(&self) -> String {
@@ -373,6 +402,7 @@ fn update_effect(
         mono: look.get("mono") * on,
         mask: look.get("mask") * on,
         _pad: Vec2::ZERO,
+        ..**effect
     };
     bloom.intensity = look.get("bloom");
 }
